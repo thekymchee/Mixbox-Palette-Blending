@@ -321,6 +321,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  padding-bottom: 10px;
 }
 
 .polygon-swatch-canvas {
@@ -341,11 +342,22 @@
   background: #1a1a1a;
   color: white;
   font-family: ui-monospace, monospace;
-  font-size: 0.78rem;
-  padding: 3px 7px;
+  padding: 4px 8px;
   border-radius: 5px;
   pointer-events: none;
   white-space: nowrap;
+  text-align: center;
+}
+
+.swatch-hover-hex {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.swatch-hover-oklch {
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.75);
+  margin-top: 1px;
 }
 
 .swatch-hover-tooltip::after {

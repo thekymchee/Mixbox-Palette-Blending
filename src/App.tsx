@@ -18,6 +18,7 @@ function App() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [lightness, setLightness] = useState(0.75);
   const [steps, setSteps] = useState(5);
+  const [tint, setTint] = useState(5);
   const [wheelView, setWheelView] = useState<WheelView>("circle");
   const [pigmentTab, setPigmentTab] = useState<PigmentTab>("mine");
 
@@ -157,7 +158,7 @@ function App() {
             <div className="panel-header">
               <h2>Blended Swatch</h2>
             </div>
-            <PolygonSwatch colors={activeColors} steps={steps} size={460} />
+            <PolygonSwatch colors={activeColors} steps={steps} tint={tint} size={460} />
             <div className="slider-row steps-row">
               <label htmlFor="steps-slider">Steps: {steps}</label>
               <input
@@ -170,9 +171,24 @@ function App() {
                 onChange={(e) => setSteps(Number(e.target.value))}
               />
             </div>
+            <div className="slider-row tint-row">
+              <label htmlFor="tint-slider">
+                Tints: {tint} ({tint === 0 ? "black" : tint === 10 ? "white" : tint === 5 ? "pure mix" : tint < 5 ? "shade" : "tint"})
+              </label>
+              <input
+                id="tint-slider"
+                type="range"
+                min={0}
+                max={10}
+                step={1}
+                value={tint}
+                onChange={(e) => setTint(Number(e.target.value))}
+              />
+            </div>
             <p className="hint-text">
               The <strong>+</strong> marks the swatch at the polygon's geometric center (its equal-parts
-              mix).
+              mix). Tints mixes each swatch with black (0) or white (10) in Mixbox's pigment space; 5 is
+              the pure mix.
             </p>
           </div>
         </section>
