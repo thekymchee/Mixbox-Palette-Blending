@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ColorWheel } from "./components/ColorWheel";
+import { ColorPlane } from "./components/ColorPlane";
 import { PigmentPanel } from "./components/PigmentPanel";
 import { ColorSlots } from "./components/ColorSlots";
 import { PolygonSwatch } from "./components/PolygonSwatch";
@@ -7,6 +8,7 @@ import { loadPigments, savePigments, type Pigment } from "./lib/pigments";
 import "./App.css";
 
 const DEFAULT_COLORS = ["#FEEC00", "#002185", "#FF2702", "#076D16", "#4E0042", "#7B4800"];
+type WheelView = "circle" | "plane";
 
 function App() {
   const [pigments, setPigments] = useState<Pigment[]>(() => loadPigments());
@@ -15,6 +17,7 @@ function App() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [lightness, setLightness] = useState(0.75);
   const [steps, setSteps] = useState(5);
+  const [wheelView, setWheelView] = useState<WheelView>("circle");
 
   useEffect(() => {
     savePigments(pigments);
@@ -64,18 +67,47 @@ function App() {
       <main className="app-grid">
         <section className="panel wheel-panel">
           <div className="panel-header">
-            <h2>Okhsl Color Circle</h2>
+            <h2>{wheelView === "circle" ? "Okhsl Color Circle" : "OKLab Color Plane"}</h2>
+            <div className="view-toggle">
+              <button
+                type="button"
+                className={wheelView === "circle" ? "active" : ""}
+                onClick={() => setWheelView("circle")}
+              >
+                Circle
+              </button>
+              <button
+                type="button"
+                className={wheelView === "plane" ? "active" : ""}
+                onClick={() => setWheelView("plane")}
+              >
+                Plane
+              </button>
+            </div>
           </div>
-          <ColorWheel
-            size={320}
-            lightness={lightness}
-            pigments={pigments}
-            selectedColors={wheelSelectedColors}
-            activeIndex={activeIndex}
-            onPick={handleWheelPick}
-          />
+          {wheelView === "circle" ? (
+            <ColorWheel
+              size={320}
+              lightness={lightness}
+              pigments={pigments}
+              selectedColors={wheelSelectedColors}
+              activeIndex={activeIndex}
+              onPick={handleWheelPick}
+            />
+          ) : (
+            <ColorPlane
+              size={320}
+              lightness={lightness}
+              pigments={pigments}
+              selectedColors={wheelSelectedColors}
+              activeIndex={activeIndex}
+              onPick={handleWheelPick}
+            />
+          )}
           <div className="slider-row lightness-row">
-            <label htmlFor="lightness-slider">Wheel lightness: {lightness.toFixed(2)}</label>
+            <label htmlFor="lightness-slider">
+              {wheelView === "circle" ? "Wheel" : "Plane"} lightness: {lightness.toFixed(2)}
+            </label>
             <input
               id="lightness-slider"
               type="range"
@@ -86,11 +118,24 @@ function App() {
               onChange={(e) => setLightness(Number(e.target.value))}
             />
           </div>
-          <p className="hint-text">
-            Click or drag on the circle to set color <strong>#{activeIndex + 1}</strong>. Small dots are
-            your pigment library; large rings are the colors being blended; the <strong>+</strong> marks
-            the geometric center of the polygon their points form (its color at the current lightness).
-          </p>
+          {wheelView === "circle" ? (
+            <p className="hint-text">
+              Click or drag on the circle to set color <strong>#{activeIndex + 1}</strong>. Small dots are
+              your pigment library; large rings are the colors being blended; the <strong>+</strong> marks
+              the geometric center of the polygon their points form (its color at the current lightness).
+              Saturation is normalized to the gamut edge, so vivid pigments cluster near the rim.
+            </p>
+          ) : (
+            <p className="hint-text">
+              Click or drag on the plane to set color <strong>#{activeIndex + 1}</strong>. Unlike the
+              circle, position reflects each color's true OKLab chroma (à la{" "}
+              <a href="https://artistpigments.org" target="_blank" rel="noreferrer">
+                artistpigments.org
+              </a>
+              's color planes), so pigments spread out by real perceptual distance instead of bunching at
+              an edge.
+            </p>
+          )}
         </section>
 
         <section className="middle-column">
@@ -108,7 +153,7 @@ function App() {
             <div className="panel-header">
               <h2>Blended Swatch</h2>
             </div>
-            <PolygonSwatch colors={activeColors} steps={steps} size={320} />
+            <PolygonSwatch colors={activeColors} steps={steps} size={460} />
             <div className="slider-row steps-row">
               <label htmlFor="steps-slider">Steps: {steps}</label>
               <input

@@ -1,5 +1,5 @@
 .app-shell {
-  max-width: 1280px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 32px 24px 64px;
 }
@@ -21,7 +21,7 @@
 
 .app-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 380px) minmax(280px, 420px) minmax(260px, 340px);
+  grid-template-columns: minmax(280px, 380px) minmax(320px, 540px) minmax(260px, 340px);
   gap: 20px;
   align-items: start;
 }
@@ -85,6 +85,88 @@
   paint-order: stroke;
   stroke: var(--panel-bg);
   stroke-width: 3px;
+}
+
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.view-toggle button {
+  border: none;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.view-toggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.view-toggle button.active {
+  background: var(--accent);
+  color: white;
+}
+
+.color-plane-wrap {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: 1fr auto;
+  gap: 6px;
+  justify-items: center;
+  align-items: center;
+}
+
+.color-plane {
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+  touch-action: none;
+  cursor: crosshair;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.color-plane-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.color-plane-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.plane-gridline line {
+  stroke: rgba(0, 0, 0, 0.18);
+}
+
+.plane-tick-label {
+  font-size: 8px;
+  fill: var(--text-muted);
+}
+
+.plane-axis-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.plane-axis-label-b {
+  grid-column: 1;
+  grid-row: 1;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.plane-axis-label-a {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .slider-row {
