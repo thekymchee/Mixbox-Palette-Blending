@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DEFAULT_PIGMENTS, makePigmentId, type Pigment } from "../lib/pigments";
-import { isValidHex, normalizeHex } from "../lib/oklab";
+import { isValidHex, normalizeHex } from "../lib/color";
 
 interface PigmentPanelProps {
   pigments: Pigment[];

@@ -13,7 +13,8 @@ function App() {
   const [count, setCount] = useState(3);
   const [colors, setColors] = useState<string[]>(DEFAULT_COLORS);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [lightness, setLightness] = useState(0.7);
+  const [lightness, setLightness] = useState(0.75);
+  const [steps, setSteps] = useState(5);
 
   useEffect(() => {
     savePigments(pigments);
@@ -63,7 +64,7 @@ function App() {
       <main className="app-grid">
         <section className="panel wheel-panel">
           <div className="panel-header">
-            <h2>OKLAB Color Wheel</h2>
+            <h2>Okhsl Color Circle</h2>
           </div>
           <ColorWheel
             size={320}
@@ -78,16 +79,17 @@ function App() {
             <input
               id="lightness-slider"
               type="range"
-              min={0.1}
-              max={0.95}
+              min={0}
+              max={1}
               step={0.01}
               value={lightness}
               onChange={(e) => setLightness(Number(e.target.value))}
             />
           </div>
           <p className="hint-text">
-            Click or drag on the wheel to set color <strong>#{activeIndex + 1}</strong>. Small dots are
-            your pigment library; large rings are the colors being blended.
+            Click or drag on the circle to set color <strong>#{activeIndex + 1}</strong>. Small dots are
+            your pigment library; large rings are the colors being blended; the <strong>+</strong> marks
+            the geometric center of the polygon their points form (its color at the current lightness).
           </p>
         </section>
 
@@ -106,7 +108,23 @@ function App() {
             <div className="panel-header">
               <h2>Blended Swatch</h2>
             </div>
-            <PolygonSwatch colors={activeColors} size={320} />
+            <PolygonSwatch colors={activeColors} steps={steps} size={320} />
+            <div className="slider-row steps-row">
+              <label htmlFor="steps-slider">Steps: {steps}</label>
+              <input
+                id="steps-slider"
+                type="range"
+                min={2}
+                max={60}
+                step={1}
+                value={steps}
+                onChange={(e) => setSteps(Number(e.target.value))}
+              />
+            </div>
+            <p className="hint-text">
+              The <strong>+</strong> marks the swatch at the polygon's geometric center (its equal-parts
+              mix).
+            </p>
           </div>
         </section>
 
