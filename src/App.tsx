@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ColorWheel } from "./components/ColorWheel";
 import { ColorPlane } from "./components/ColorPlane";
-import { PigmentPanel } from "./components/PigmentPanel";
+import { PigmentPanel, type PigmentTab } from "./components/PigmentPanel";
 import { ColorSlots } from "./components/ColorSlots";
 import { PolygonSwatch } from "./components/PolygonSwatch";
 import { loadPigments, savePigments, type Pigment } from "./lib/pigments";
+import { WINSOR_NEWTON_PIGMENTS } from "./lib/winsorNewtonPigments";
 import "./App.css";
 
 const DEFAULT_COLORS = ["#FEEC00", "#002185", "#FF2702", "#076D16", "#4E0042", "#7B4800"];
@@ -18,6 +19,9 @@ function App() {
   const [lightness, setLightness] = useState(0.75);
   const [steps, setSteps] = useState(5);
   const [wheelView, setWheelView] = useState<WheelView>("circle");
+  const [pigmentTab, setPigmentTab] = useState<PigmentTab>("mine");
+
+  const visiblePigments = pigmentTab === "mine" ? pigments : WINSOR_NEWTON_PIGMENTS;
 
   useEffect(() => {
     savePigments(pigments);
@@ -89,7 +93,7 @@ function App() {
             <ColorWheel
               size={320}
               lightness={lightness}
-              pigments={pigments}
+              pigments={visiblePigments}
               selectedColors={wheelSelectedColors}
               activeIndex={activeIndex}
               onPick={handleWheelPick}
@@ -98,7 +102,7 @@ function App() {
             <ColorPlane
               size={320}
               lightness={lightness}
-              pigments={pigments}
+              pigments={visiblePigments}
               selectedColors={wheelSelectedColors}
               activeIndex={activeIndex}
               onPick={handleWheelPick}
@@ -143,7 +147,7 @@ function App() {
             colors={colors}
             count={count}
             activeIndex={activeIndex}
-            pigments={pigments}
+            pigments={visiblePigments}
             onCountChange={handleCountChange}
             onActiveIndexChange={setActiveIndex}
             onColorChange={setColorAt}
@@ -173,7 +177,13 @@ function App() {
           </div>
         </section>
 
-        <PigmentPanel pigments={pigments} onChange={setPigments} onSelect={handlePigmentSelect} />
+        <PigmentPanel
+          pigments={pigments}
+          onChange={setPigments}
+          onSelect={handlePigmentSelect}
+          activeTab={pigmentTab}
+          onTabChange={setPigmentTab}
+        />
       </main>
     </div>
   );
