@@ -15,6 +15,10 @@ interface ColorPlaneProps {
 const PLANE_RESOLUTION = 220;
 const MIN_HALF_EXTENT = 0.12;
 const PADDING_FACTOR = 1.3;
+// Hue-angle ticks around the plot, using OKLCH's standard hue definition
+// (0 deg along +a, increasing counterclockwise) - the same number shown
+// as "h" elsewhere in the app.
+const DEGREE_TICKS = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
 
 function computeHalfExtent(pigments: Pigment[], selectedColors: WheelColor[]): number {
   let maxAbs = MIN_HALF_EXTENT;
@@ -119,6 +123,7 @@ export function ColorPlane({ size, lightness, pigments, selectedColors, activeIn
   }, [centroid, lightness]);
 
   const gridValues = [-halfExtent, -halfExtent / 2, 0, halfExtent / 2, halfExtent];
+  const degreeCircleRadius = radius - 24;
 
   return (
     <>
@@ -134,6 +139,28 @@ export function ColorPlane({ size, lightness, pigments, selectedColors, activeIn
           <canvas ref={bgCanvasRef} className="color-plane-canvas" style={{ width: size, height: size }} />
 
           <svg className="color-plane-overlay" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+            <circle className="plane-degree-circle" cx={radius} cy={radius} r={degreeCircleRadius} />
+            {DEGREE_TICKS.map((deg) => {
+              const rad = (deg * Math.PI) / 180;
+              const ux = Math.cos(rad);
+              // Screen y is flipped relative to OKLab b, matching oklabToPlaneOffset.
+              const uy = -Math.sin(rad);
+              const innerX = radius + ux * (degreeCircleRadius - 6);
+              const innerY = radius + uy * (degreeCircleRadius - 6);
+              const outerX = radius + ux * degreeCircleRadius;
+              const outerY = radius + uy * degreeCircleRadius;
+              const labelX = radius + ux * (degreeCircleRadius + 13);
+              const labelY = radius + uy * (degreeCircleRadius + 13);
+              return (
+                <g key={deg} className="plane-degree-tick">
+                  <line x1={innerX} y1={innerY} x2={outerX} y2={outerY} />
+                  <text x={labelX} y={labelY} textAnchor="middle" dominantBaseline="middle">
+                    {deg}°
+                  </text>
+                </g>
+              );
+            })}
+
             {gridValues.map((v) => {
               const { x } = oklabToPlaneOffset(v, 0, halfExtent, radius);
               const { y } = oklabToPlaneOffset(0, v, halfExtent, radius);
@@ -199,7 +226,7 @@ export function ColorPlane({ size, lightness, pigments, selectedColors, activeIn
               })()}
           </svg>
         </div>
-        <span className="plane-axis-label plane-axis-label-a">a (green ↔ red)</span>
+        <span className="plane-axis-label plane-axis-label-a">a (green ↔ magenta)</span>
       </div>
 
       {centroidHex && <PlaneCentroidInfo hex={centroidHex} centroid={centroid} />}

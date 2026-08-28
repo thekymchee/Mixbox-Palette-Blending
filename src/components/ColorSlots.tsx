@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Pigment } from "../lib/pigments";
-import { isValidHex, normalizeHex } from "../lib/color";
+import { hexLightnessPercent, isValidHex, normalizeHex } from "../lib/color";
 
 interface ColorSlotsProps {
   colors: string[];
@@ -103,6 +103,7 @@ function ColorSlotRow({ index, hex, isActive, pigments, onFocus, onColorChange }
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         }}
       />
+      <span className="color-slot-lightness">L {hexLightnessPercent(hex) ?? "–"}%</span>
       <select
         className="pigment-select"
         value=""
