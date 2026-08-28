@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Pigment } from "../lib/pigments";
-import { isValidHex, normalizeHex } from "../lib/oklab";
+import { isValidHex, normalizeHex } from "../lib/color";
 
 interface ColorSlotsProps {
   colors: string[];
