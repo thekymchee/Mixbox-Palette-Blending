@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { hexToOkhsl, hueSatToWheelOffset, okhslToHex, okhslToRgb01, wheelOffsetToHueSat } from "../lib/okhsl";
 import type { Pigment } from "../lib/pigments";
 
@@ -13,7 +13,6 @@ interface ColorWheelProps {
   pigments: Pigment[];
   selectedColors: WheelColor[];
   activeIndex: number;
-  midpointHex: string | null;
   onPick: (hex: string) => void;
 }
 
@@ -56,15 +55,29 @@ function paintWheelBackground(canvas: HTMLCanvasElement, lightness: number) {
   ctx.putImageData(image, 0, 0);
 }
 
-export function ColorWheel({
-  size,
-  lightness,
-  pigments,
-  selectedColors,
-  activeIndex,
-  midpointHex,
-  onPick,
-}: ColorWheelProps) {
+/** Geometric center (centroid) of the polygon formed by the selected
+ * colors' points on the wheel - the plain average of their (x, y)
+ * positions in the wheel's unit disk, not a pigment mix. Always lands
+ * inside the disk, since it's an average of points already inside it. */
+function polygonCentroid(selectedColors: WheelColor[]): { x: number; y: number } | null {
+  if (selectedColors.length < 2) return null;
+
+  let sumX = 0;
+  let sumY = 0;
+  let count = 0;
+  for (const color of selectedColors) {
+    const ok = safeOkhsl(color.hex);
+    if (!ok) continue;
+    const { x, y } = hueSatToWheelOffset(ok.h ?? 0, ok.s, 1);
+    sumX += x;
+    sumY += y;
+    count++;
+  }
+  if (count === 0) return null;
+  return { x: sumX / count, y: sumY / count };
+}
+
+export function ColorWheel({ size, lightness, pigments, selectedColors, activeIndex, onPick }: ColorWheelProps) {
   const bgCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -97,7 +110,13 @@ export function ColorWheel({
   };
 
   const radius = size / 2;
-  const midpoint = midpointHex ? safeOkhsl(midpointHex) : undefined;
+
+  const centroid = useMemo(() => polygonCentroid(selectedColors), [selectedColors]);
+  const centroidColor = useMemo(() => {
+    if (!centroid) return null;
+    const { h, s } = wheelOffsetToHueSat(centroid.x, centroid.y, 1);
+    return okhslToHex(h, s, lightness);
+  }, [centroid, lightness]);
 
   return (
     <>
@@ -153,15 +172,11 @@ export function ColorWheel({
             );
           })}
 
-          {midpoint &&
-            (() => {
-              const { x, y } = hueSatToWheelOffset(midpoint.h ?? 0, midpoint.s, radius);
-              return <PlusMarker cx={radius + x} cy={radius + y} />;
-            })()}
+          {centroid && <PlusMarker cx={radius + centroid.x * radius} cy={radius + centroid.y * radius} />}
         </svg>
       </div>
 
-      {midpointHex && <MidpointInfo hex={midpointHex} />}
+      {centroidColor && <CentroidInfo hex={centroidColor} />}
     </>
   );
 }
@@ -186,13 +201,13 @@ function PlusMarker({ cx, cy }: { cx: number; cy: number }) {
   );
 }
 
-function MidpointInfo({ hex }: { hex: string }) {
+function CentroidInfo({ hex }: { hex: string }) {
   const ok = safeOkhsl(hex);
   return (
     <div className="midpoint-info">
       <span className="midpoint-info-swatch" style={{ backgroundColor: hex }} />
       <div className="midpoint-info-text">
-        <span className="midpoint-info-label">Midpoint mix</span>
+        <span className="midpoint-info-label">Geometric center</span>
         <span className="midpoint-info-hex">{hex}</span>
         {ok && (
           <span className="midpoint-info-hsl">

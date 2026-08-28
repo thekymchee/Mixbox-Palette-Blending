@@ -4,7 +4,6 @@ import { PigmentPanel } from "./components/PigmentPanel";
 import { ColorSlots } from "./components/ColorSlots";
 import { PolygonSwatch } from "./components/PolygonSwatch";
 import { loadPigments, savePigments, type Pigment } from "./lib/pigments";
-import { mixWeighted, rgbToHex } from "./lib/mix";
 import "./App.css";
 
 const DEFAULT_COLORS = ["#FEEC00", "#002185", "#FF2702", "#076D16", "#4E0042", "#7B4800"];
@@ -32,12 +31,6 @@ function App() {
     () => activeColors.map((hex, i) => ({ hex, label: String(i + 1) })),
     [activeColors],
   );
-
-  const midpointHex = useMemo(() => {
-    if (activeColors.length < 2) return null;
-    const equalWeights = activeColors.map(() => 1 / activeColors.length);
-    return rgbToHex(mixWeighted(activeColors, equalWeights));
-  }, [activeColors]);
 
   const setColorAt = (index: number, hex: string) => {
     setColors((prev) => {
@@ -79,7 +72,6 @@ function App() {
             pigments={pigments}
             selectedColors={wheelSelectedColors}
             activeIndex={activeIndex}
-            midpointHex={midpointHex}
             onPick={handleWheelPick}
           />
           <div className="slider-row lightness-row">
@@ -97,7 +89,7 @@ function App() {
           <p className="hint-text">
             Click or drag on the circle to set color <strong>#{activeIndex + 1}</strong>. Small dots are
             your pigment library; large rings are the colors being blended; the <strong>+</strong> marks
-            their equal-parts midpoint mix.
+            the geometric center of the polygon their points form (its color at the current lightness).
           </p>
         </section>
 
@@ -123,14 +115,15 @@ function App() {
                 id="steps-slider"
                 type="range"
                 min={2}
-                max={12}
+                max={60}
                 step={1}
                 value={steps}
                 onChange={(e) => setSteps(Number(e.target.value))}
               />
             </div>
             <p className="hint-text">
-              The <strong>+</strong> marks the swatch closest to the equal-parts midpoint mix.
+              The <strong>+</strong> marks the swatch at the polygon's geometric center (its equal-parts
+              mix).
             </p>
           </div>
         </section>

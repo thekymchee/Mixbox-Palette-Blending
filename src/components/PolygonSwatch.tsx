@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { meanValueCoordinates, regularPolygonVertices } from "../lib/polygon";
+import { meanValueCoordinates, pointInPolygon, regularPolygonVertices } from "../lib/polygon";
 import { hexToLatent, mixLatentsWeighted } from "../lib/mix";
 
 interface PolygonSwatchProps {
@@ -34,6 +34,9 @@ export function PolygonSwatch({ colors, steps, size }: PolygonSwatchProps) {
 }
 
 const GRID_LINE_STYLE = "rgba(0,0,0,0.12)";
+// Below this tile size, per-tile borders muddy the colors more than they
+// help define the grid, so they're skipped.
+const MIN_TILE_SIZE_FOR_BORDER = 3;
 
 function drawPlus(ctx: CanvasRenderingContext2D, cx: number, cy: number, half: number) {
   ctx.save();
@@ -65,6 +68,7 @@ function renderLineSteps(ctx: CanvasRenderingContext2D, colors: string[], steps:
   const width = size - margin * 2;
   const cellWidth = width / steps;
   const latents = colors.map(hexToLatent);
+  const drawBorder = cellWidth >= MIN_TILE_SIZE_FOR_BORDER;
 
   let nearestIndex = 0;
   let nearestDist = Infinity;
@@ -80,10 +84,12 @@ function renderLineSteps(ctx: CanvasRenderingContext2D, colors: string[], steps:
     const [r, g, b] = mixLatentsWeighted(latents, [1 - t, t]);
     const x = margin + cellWidth * i;
     ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-    ctx.fillRect(x, top, cellWidth, height);
-    ctx.strokeStyle = GRID_LINE_STYLE;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x, top, cellWidth, height);
+    ctx.fillRect(x, top, cellWidth + 0.5, height);
+    if (drawBorder) {
+      ctx.strokeStyle = GRID_LINE_STYLE;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, top, cellWidth, height);
+    }
   }
 
   const nearestCx = margin + cellWidth * (nearestIndex + 0.5);
@@ -91,6 +97,11 @@ function renderLineSteps(ctx: CanvasRenderingContext2D, colors: string[], steps:
   drawPlus(ctx, nearestCx, nearestCy, Math.min(cellWidth, height) * 0.22);
 }
 
+/** Full, unmasked square tiles: a tile is included whenever its center
+ * falls inside the polygon, but is always drawn as a complete square -
+ * border tiles are shown in full rather than clipped to a sliver, giving
+ * a blocky (not smooth-edged) approximation of the polygon at low step
+ * counts. */
 function renderPolygonSteps(ctx: CanvasRenderingContext2D, colors: string[], steps: number, size: number) {
   const n = colors.length;
   const center = size / 2;
@@ -98,15 +109,10 @@ function renderPolygonSteps(ctx: CanvasRenderingContext2D, colors: string[], ste
   const vertices = regularPolygonVertices(n, center, center, radius);
   const latents = colors.map(hexToLatent);
 
-  ctx.save();
-  ctx.beginPath();
-  vertices.forEach((v, i) => (i === 0 ? ctx.moveTo(v.x, v.y) : ctx.lineTo(v.x, v.y)));
-  ctx.closePath();
-  ctx.clip();
-
   const gridSize = radius * 2;
   const gridMin = center - radius;
   const tileSize = gridSize / steps;
+  const drawBorder = tileSize >= MIN_TILE_SIZE_FOR_BORDER;
 
   let nearestCx = center;
   let nearestCy = center;
@@ -117,13 +123,19 @@ function renderPolygonSteps(ctx: CanvasRenderingContext2D, colors: string[], ste
       const cx = gridMin + tileSize * (col + 0.5);
       const cy = gridMin + tileSize * (row + 0.5);
 
+      if (!pointInPolygon({ x: cx, y: cy }, vertices)) continue;
+
       const weights = meanValueCoordinates({ x: cx, y: cy }, vertices);
       const [r, g, b] = mixLatentsWeighted(latents, weights);
+      const tileX = gridMin + tileSize * col;
+      const tileY = gridMin + tileSize * row;
       ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-      ctx.fillRect(gridMin + tileSize * col, gridMin + tileSize * row, tileSize + 0.5, tileSize + 0.5);
-      ctx.strokeStyle = GRID_LINE_STYLE;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(gridMin + tileSize * col, gridMin + tileSize * row, tileSize, tileSize);
+      ctx.fillRect(tileX, tileY, tileSize + 0.5, tileSize + 0.5);
+      if (drawBorder) {
+        ctx.strokeStyle = GRID_LINE_STYLE;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tileX, tileY, tileSize, tileSize);
+      }
 
       const dist = Math.hypot(cx - center, cy - center);
       if (dist < nearestDist) {
@@ -134,16 +146,5 @@ function renderPolygonSteps(ctx: CanvasRenderingContext2D, colors: string[], ste
     }
   }
 
-  ctx.restore();
-
-  drawPlus(ctx, nearestCx, nearestCy, tileSize * 0.22);
-
-  ctx.save();
-  ctx.strokeStyle = "rgba(0,0,0,0.2)";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  vertices.forEach((v, i) => (i === 0 ? ctx.moveTo(v.x, v.y) : ctx.lineTo(v.x, v.y)));
-  ctx.closePath();
-  ctx.stroke();
-  ctx.restore();
+  drawPlus(ctx, nearestCx, nearestCy, Math.max(tileSize * 0.22, 4));
 }
