@@ -1,13 +1,19 @@
 import { useState, useEffect, useRef } from "react";
 import { meanValueCoordinates, pointInPolygon, regularPolygonVertices, type Point } from "../lib/polygon";
 import { hexToLatent, mixLatentsWeighted, rgbToHex, type RgbTuple } from "../lib/mix";
-import { rgbToOklch } from "../lib/color";
+import { rgbToOklabAB, rgbToOklch } from "../lib/color";
 
 interface PolygonSwatchProps {
   colors: string[];
   steps: number;
   tint: number;
   size: number;
+  /** The OKLab plane's geometric-center point (plain average of the
+   * selected colors' OKLab a/b - the same point regardless of which wheel
+   * view is currently shown), so the swatch's "+" can mark whichever tile's
+   * actual pigment mix comes closest to it, instead of whichever tile sits
+   * at the polygon's spatial center. */
+  targetAB: { a: number; b: number } | null;
 }
 
 interface HoverState {
@@ -23,7 +29,7 @@ const clipboardSupported =
 const BLACK_LATENT = hexToLatent("#000000");
 const WHITE_LATENT = hexToLatent("#FFFFFF");
 
-export function PolygonSwatch({ colors, steps, tint, size }: PolygonSwatchProps) {
+export function PolygonSwatch({ colors, steps, tint, size, targetAB }: PolygonSwatchProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -40,12 +46,12 @@ export function PolygonSwatch({ colors, steps, tint, size }: PolygonSwatchProps)
     if (colors.length < 2) return;
 
     if (colors.length === 2) {
-      renderLineSteps(ctx, colors, steps, tint, size);
+      renderLineSteps(ctx, colors, steps, tint, size, targetAB);
       return;
     }
 
-    renderPolygonSteps(ctx, colors, steps, tint, size);
-  }, [colors, steps, tint, size]);
+    renderPolygonSteps(ctx, colors, steps, tint, size, targetAB);
+  }, [colors, steps, tint, size, targetAB]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -203,6 +209,12 @@ function colorAtPoint(colors: string[], steps: number, tint: number, size: numbe
   );
 }
 
+function colorDistanceSq(a: { a: number; b: number }, b: { a: number; b: number }): number {
+  const da = a.a - b.a;
+  const db = a.b - b.b;
+  return da * da + db * db;
+}
+
 function drawPlus(ctx: CanvasRenderingContext2D, cx: number, cy: number, half: number) {
   ctx.save();
   ctx.lineCap = "round";
@@ -226,7 +238,14 @@ function drawPlus(ctx: CanvasRenderingContext2D, cx: number, cy: number, half: n
   ctx.restore();
 }
 
-function renderLineSteps(ctx: CanvasRenderingContext2D, colors: string[], steps: number, tint: number, size: number) {
+function renderLineSteps(
+  ctx: CanvasRenderingContext2D,
+  colors: string[],
+  steps: number,
+  tint: number,
+  size: number,
+  targetAB: { a: number; b: number } | null,
+) {
   const { margin, top, height } = lineGeometry(size);
   const width = size - margin * 2;
   const cellWidth = width / steps;
@@ -239,13 +258,15 @@ function renderLineSteps(ctx: CanvasRenderingContext2D, colors: string[], steps:
 
   for (let i = 0; i < steps; i++) {
     const t = steps === 1 ? 0.5 : i / (steps - 1);
-    const dist = Math.abs(t - 0.5);
+
+    const rgb = mixLatentsWeighted(latentsWithBW, [(1 - t) * original, t * original, black, white]);
+    const dist = targetAB ? colorDistanceSq(rgbToOklabAB(rgb), targetAB) : Math.abs(t - 0.5);
     if (dist < nearestDist) {
       nearestDist = dist;
       nearestIndex = i;
     }
 
-    const [r, g, b] = mixLatentsWeighted(latentsWithBW, [(1 - t) * original, t * original, black, white]);
+    const [r, g, b] = rgb;
     const x = margin + cellWidth * i;
     ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
     ctx.fillRect(x, top, cellWidth + 0.5, height);
@@ -266,7 +287,14 @@ function renderLineSteps(ctx: CanvasRenderingContext2D, colors: string[], steps:
  * border tiles are shown in full rather than clipped to a sliver, giving
  * a blocky (not smooth-edged) approximation of the polygon at low step
  * counts. */
-function renderPolygonSteps(ctx: CanvasRenderingContext2D, colors: string[], steps: number, tint: number, size: number) {
+function renderPolygonSteps(
+  ctx: CanvasRenderingContext2D,
+  colors: string[],
+  steps: number,
+  tint: number,
+  size: number,
+  targetAB: { a: number; b: number } | null,
+) {
   const { vertices, circleCenter, gridSize, gridMin } = polygonGeometry(colors.length, size);
   const latentsWithBW = [...colors.map(hexToLatent), BLACK_LATENT, WHITE_LATENT];
   const { original, black, white } = tintWeights(tint);
@@ -285,7 +313,8 @@ function renderPolygonSteps(ctx: CanvasRenderingContext2D, colors: string[], ste
       if (!pointInPolygon({ x: cx, y: cy }, vertices)) continue;
 
       const weights = meanValueCoordinates({ x: cx, y: cy }, vertices);
-      const [r, g, b] = mixLatentsWeighted(latentsWithBW, [...weights.map((w) => w * original), black, white]);
+      const rgb = mixLatentsWeighted(latentsWithBW, [...weights.map((w) => w * original), black, white]);
+      const [r, g, b] = rgb;
       const tileX = gridMin + tileSize * col;
       const tileY = gridMin + tileSize * row;
       ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
@@ -296,7 +325,9 @@ function renderPolygonSteps(ctx: CanvasRenderingContext2D, colors: string[], ste
         ctx.strokeRect(tileX, tileY, tileSize, tileSize);
       }
 
-      const dist = Math.hypot(cx - circleCenter.x, cy - circleCenter.y);
+      const dist = targetAB
+        ? colorDistanceSq(rgbToOklabAB(rgb), targetAB)
+        : Math.hypot(cx - circleCenter.x, cy - circleCenter.y);
       if (dist < nearestDist) {
         nearestDist = dist;
         nearestCx = cx;

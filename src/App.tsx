@@ -6,6 +6,7 @@ import { ColorSlots } from "./components/ColorSlots";
 import { PolygonSwatch } from "./components/PolygonSwatch";
 import { loadPigments, savePigments, type Pigment } from "./lib/pigments";
 import { WINSOR_NEWTON_PIGMENTS } from "./lib/winsorNewtonPigments";
+import { colorsCentroidAB } from "./lib/color";
 import "./App.css";
 
 const DEFAULT_COLORS = ["#FEEC00", "#002185", "#FF2702", "#076D16", "#4E0042", "#7B4800"];
@@ -39,6 +40,12 @@ function App() {
     () => activeColors.map((hex, i) => ({ hex, label: String(i + 1) })),
     [activeColors],
   );
+
+  // Same geometric-center point the OKLab plane plots (a plain average of
+  // the selected colors' OKLab a/b) - independent of which wheel view is
+  // currently shown - so the swatch's "+" can point at whichever real
+  // pigment mix comes closest to it.
+  const centroidAB = useMemo(() => colorsCentroidAB(activeColors), [activeColors]);
 
   const setColorAt = (index: number, hex: string) => {
     setColors((prev) => {
@@ -158,7 +165,7 @@ function App() {
             <div className="panel-header">
               <h2>Blended Swatch</h2>
             </div>
-            <PolygonSwatch colors={activeColors} steps={steps} tint={tint} size={460} />
+            <PolygonSwatch colors={activeColors} steps={steps} tint={tint} size={460} targetAB={centroidAB} />
             <div className="slider-row steps-row">
               <label htmlFor="steps-slider">Steps: {steps}</label>
               <input
@@ -186,9 +193,11 @@ function App() {
               />
             </div>
             <p className="hint-text">
-              The <strong>+</strong> marks the swatch at the polygon's geometric center (its equal-parts
-              mix). Tints mixes each swatch with black (0) or white (10) in Mixbox's pigment space; 5 is
-              the pure mix.
+              The <strong>+</strong> marks whichever swatch's real pigment mix comes closest to the OKLab
+              plane's geometric center (same point regardless of which view is shown) - not necessarily
+              the swatch at the polygon's own spatial center, since real pigment mixing rarely lands on a
+              clean average. Tints mixes each swatch with black (0) or white (10) in Mixbox's pigment
+              space; 5 is the pure mix.
             </p>
           </div>
         </section>
