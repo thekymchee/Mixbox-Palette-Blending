@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { meanValueCoordinates, pointInPolygon, regularPolygonVertices, type Point } from "../lib/polygon";
 import { hexToLatent, mixLatentsWeighted, rgbToHex, type RgbTuple } from "../lib/mix";
 import { rgbToOklabAB, rgbToOklch } from "../lib/color";
+import { BLACK_LATENT, WHITE_LATENT, tintRangeForColors, tintWeights } from "../lib/tint";
 
 interface PolygonSwatchProps {
   colors: string[];
@@ -26,13 +27,11 @@ interface HoverState {
 const clipboardSupported =
   typeof navigator !== "undefined" && !!navigator.clipboard?.write && typeof window.ClipboardItem !== "undefined";
 
-const BLACK_LATENT = hexToLatent("#000000");
-const WHITE_LATENT = hexToLatent("#FFFFFF");
-
 export function PolygonSwatch({ colors, steps, tint, size, targetAB }: PolygonSwatchProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const tintPure = useMemo(() => tintRangeForColors(colors).pure, [colors]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -46,18 +45,18 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB }: PolygonSw
     if (colors.length < 2) return;
 
     if (colors.length === 2) {
-      renderLineSteps(ctx, colors, steps, tint, size, targetAB);
+      renderLineSteps(ctx, colors, steps, tint, tintPure, size, targetAB);
       return;
     }
 
-    renderPolygonSteps(ctx, colors, steps, tint, size, targetAB);
-  }, [colors, steps, tint, size, targetAB]);
+    renderPolygonSteps(ctx, colors, steps, tint, tintPure, size, targetAB);
+  }, [colors, steps, tint, tintPure, size, targetAB]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const rgb = colors.length >= 2 ? colorAtPoint(colors, steps, tint, size, x, y) : null;
+    const rgb = colors.length >= 2 ? colorAtPoint(colors, steps, tint, tintPure, size, x, y) : null;
     setHover(rgb ? { x, y, hex: rgbToHex(rgb), oklch: rgbToOklch(rgb) } : null);
   };
 
@@ -126,18 +125,6 @@ const MIN_TILE_SIZE_FOR_BORDER = 3;
 // don't leave a dead margin below their flat base.
 const FILL_FRACTION = 0.92;
 
-/** 0-5 shades from black to the pure mix; 5-10 tints from the pure mix to
- * white. Weights sum to 1 so this composes with the vertex weights below
- * into a single latent-space mix. */
-function tintWeights(tint: number): { original: number; black: number; white: number } {
-  if (tint <= 5) {
-    const original = tint / 5;
-    return { original, black: 1 - original, white: 0 };
-  }
-  const white = (tint - 5) / 5;
-  return { original: 1 - white, black: 0, white };
-}
-
 function lineGeometry(size: number) {
   const margin = size * 0.06;
   const height = size * 0.5;
@@ -177,9 +164,17 @@ function polygonGeometry(n: number, size: number) {
 
 /** Looks up the exact color rendered at a canvas point, using the same
  * tile geometry as the render functions below, for the hover tooltip. */
-function colorAtPoint(colors: string[], steps: number, tint: number, size: number, x: number, y: number): RgbTuple | null {
+function colorAtPoint(
+  colors: string[],
+  steps: number,
+  tint: number,
+  tintPure: number,
+  size: number,
+  x: number,
+  y: number,
+): RgbTuple | null {
   const latents = colors.map(hexToLatent);
-  const { original, black, white } = tintWeights(tint);
+  const { original, black, white } = tintWeights(tint, tintPure);
 
   if (colors.length === 2) {
     const { margin, top, height, width } = lineGeometry(size);
@@ -238,11 +233,30 @@ function drawPlus(ctx: CanvasRenderingContext2D, cx: number, cy: number, half: n
   ctx.restore();
 }
 
+/** A white-outlined dark dot - same visual language as drawPlus, so it
+ * reads equally well over both pure black and pure white tiles - marking a
+ * tile whose color has fully converged (round-tripped to exact #000000 or
+ * #FFFFFF), since a merely very-dark or very-light tile looks identical at
+ * a glance. */
+function drawConvergedDot(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 0.55, 0, Math.PI * 2);
+  ctx.fillStyle = "#1a1a1a";
+  ctx.fill();
+  ctx.restore();
+}
+
 function renderLineSteps(
   ctx: CanvasRenderingContext2D,
   colors: string[],
   steps: number,
   tint: number,
+  tintPure: number,
   size: number,
   targetAB: { a: number; b: number } | null,
 ) {
@@ -250,7 +264,7 @@ function renderLineSteps(
   const width = size - margin * 2;
   const cellWidth = width / steps;
   const latentsWithBW = [...colors.map(hexToLatent), BLACK_LATENT, WHITE_LATENT];
-  const { original, black, white } = tintWeights(tint);
+  const { original, black, white } = tintWeights(tint, tintPure);
   const drawBorder = cellWidth >= MIN_TILE_SIZE_FOR_BORDER;
 
   let nearestIndex = 0;
@@ -275,6 +289,11 @@ function renderLineSteps(
       ctx.lineWidth = 1;
       ctx.strokeRect(x, top, cellWidth, height);
     }
+
+    const hex = rgbToHex(rgb);
+    if (hex === "#000000" || hex === "#FFFFFF") {
+      drawConvergedDot(ctx, x + cellWidth / 2, top + height / 2, Math.min(cellWidth, height) * 0.1);
+    }
   }
 
   const nearestCx = margin + cellWidth * (nearestIndex + 0.5);
@@ -292,12 +311,13 @@ function renderPolygonSteps(
   colors: string[],
   steps: number,
   tint: number,
+  tintPure: number,
   size: number,
   targetAB: { a: number; b: number } | null,
 ) {
   const { vertices, circleCenter, gridSize, gridMin } = polygonGeometry(colors.length, size);
   const latentsWithBW = [...colors.map(hexToLatent), BLACK_LATENT, WHITE_LATENT];
-  const { original, black, white } = tintWeights(tint);
+  const { original, black, white } = tintWeights(tint, tintPure);
   const tileSize = gridSize / steps;
   const drawBorder = tileSize >= MIN_TILE_SIZE_FOR_BORDER;
 
@@ -323,6 +343,11 @@ function renderPolygonSteps(
         ctx.strokeStyle = GRID_LINE_STYLE;
         ctx.lineWidth = 1;
         ctx.strokeRect(tileX, tileY, tileSize, tileSize);
+      }
+
+      const hex = rgbToHex(rgb);
+      if (hex === "#000000" || hex === "#FFFFFF") {
+        drawConvergedDot(ctx, cx, cy, Math.max(tileSize * 0.1, 2));
       }
 
       const dist = targetAB
