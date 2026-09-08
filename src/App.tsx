@@ -3,7 +3,7 @@ import { ColorWheel } from "./components/ColorWheel";
 import { ColorPlane } from "./components/ColorPlane";
 import { PigmentPanel, type PigmentTab } from "./components/PigmentPanel";
 import { ColorSlots } from "./components/ColorSlots";
-import { PolygonSwatch } from "./components/PolygonSwatch";
+import { PolygonSwatch, TINT_MAX, TINT_PURE } from "./components/PolygonSwatch";
 import { loadPigments, savePigments, type Pigment } from "./lib/pigments";
 import { WINSOR_NEWTON_PIGMENTS } from "./lib/winsorNewtonPigments";
 import { colorsCentroidAB } from "./lib/color";
@@ -19,7 +19,7 @@ function App() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [lightness, setLightness] = useState(0.75);
   const [steps, setSteps] = useState(5);
-  const [tint, setTint] = useState(5);
+  const [tint, setTint] = useState(TINT_PURE);
   const [wheelView, setWheelView] = useState<WheelView>("circle");
   const [pigmentTab, setPigmentTab] = useState<PigmentTab>("mine");
 
@@ -180,13 +180,23 @@ function App() {
             </div>
             <div className="slider-row tint-row">
               <label htmlFor="tint-slider">
-                Tints: {tint} ({tint === 0 ? "black" : tint === 10 ? "white" : tint === 5 ? "pure mix" : tint < 5 ? "shade" : "tint"})
+                Tints: {tint} (
+                {tint === 0
+                  ? "black"
+                  : tint === TINT_MAX
+                    ? "white"
+                    : tint === TINT_PURE
+                      ? "pure mix"
+                      : tint < TINT_PURE
+                        ? "shade"
+                        : "tint"}
+                )
               </label>
               <input
                 id="tint-slider"
                 type="range"
                 min={0}
-                max={10}
+                max={TINT_MAX}
                 step={1}
                 value={tint}
                 onChange={(e) => setTint(Number(e.target.value))}
@@ -196,8 +206,10 @@ function App() {
               The <strong>+</strong> marks whichever swatch's real pigment mix comes closest to the OKLab
               plane's geometric center (same point regardless of which view is shown) - not necessarily
               the swatch at the polygon's own spatial center, since real pigment mixing rarely lands on a
-              clean average. Tints mixes each swatch with black (0) or white (10) in Mixbox's pigment
-              space; 5 is the pure mix.
+              clean average. Each Tints step mixes in a fixed proportion of black (0) or white ({TINT_MAX})
+              relative to what's already there, compounding step by step like repeatedly stirring in a dab
+              of paint - so darker or stronger-tinting swatches reach a solid black/white in fewer steps
+              than pale, weak-tinting ones, the way real pigments do. {TINT_PURE} is the pure mix.
             </p>
           </div>
         </section>

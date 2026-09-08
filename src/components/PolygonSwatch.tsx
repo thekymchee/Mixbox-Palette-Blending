@@ -126,16 +126,32 @@ const MIN_TILE_SIZE_FOR_BORDER = 3;
 // don't leave a dead margin below their flat base.
 const FILL_FRACTION = 0.92;
 
-/** 0-5 shades from black to the pure mix; 5-10 tints from the pure mix to
- * white. Weights sum to 1 so this composes with the vertex weights below
- * into a single latent-space mix. */
+// Each Tints step mixes in a fixed 40% (1 - TINT_RATIO) of black or white
+// relative to whatever remains of the mix so far, compounding step over
+// step - like repeatedly stirring in a dab of black paint - rather than
+// interpolating in one shot to a target fraction. Because it's the
+// *remaining* pigment that shrinks by a fixed proportion each step, a
+// mixture that starts darker (or is a stronger tinter, in Mixbox's latent
+// space) reaches a rounding-indistinguishable black in fewer steps than a
+// pale, weak-tinting one - matching how real pigments differ in how
+// quickly they "give up" toward black or white. TINT_STEPS_PER_SIDE=13
+// was picked empirically: with TINT_RATIO=0.6 it's enough steps for even
+// pure white/black themselves (the most extreme case) to round to exact
+// #000000/#FFFFFF by the last step, while realistic pigments in between
+// arrive anywhere from ~9 to ~13 steps in.
+const TINT_RATIO = 0.6;
+export const TINT_STEPS_PER_SIDE = 13;
+export const TINT_PURE = TINT_STEPS_PER_SIDE;
+export const TINT_MAX = TINT_STEPS_PER_SIDE * 2;
+
+/** 0..TINT_PURE compounds toward black, TINT_PURE..TINT_MAX compounds
+ * toward white; weights sum to 1 so this composes with the vertex weights
+ * below into a single latent-space mix. */
 function tintWeights(tint: number): { original: number; black: number; white: number } {
-  if (tint <= 5) {
-    const original = tint / 5;
-    return { original, black: 1 - original, white: 0 };
-  }
-  const white = (tint - 5) / 5;
-  return { original: 1 - white, black: 0, white };
+  const stepsFromPure = Math.abs(tint - TINT_PURE);
+  const original = TINT_RATIO ** stepsFromPure;
+  if (tint <= TINT_PURE) return { original, black: 1 - original, white: 0 };
+  return { original, black: 0, white: 1 - original };
 }
 
 function lineGeometry(size: number) {
