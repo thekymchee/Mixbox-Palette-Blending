@@ -1,94 +1,98 @@
-import { hexToLatent, mixLatentsWeighted, type RgbTuple } from "./mix";
+import { hexToLatent, hexToRgb, mixLatentsWeighted, type RgbTuple } from "./mix";
+import { rgbToOklch } from "./color";
 
 export const BLACK_LATENT = hexToLatent("#000000");
 export const WHITE_LATENT = hexToLatent("#FFFFFF");
 
-// Each Tints step stirs in one more fixed-size dab of black or white paint
-// - the dab itself doesn't grow or shrink, unlike a proportional/compounding
-// mix. In parts-of-paint terms: the original mix stays at a constant 1
-// part, while accumulated black or white grows by TINT_DAB_SIZE parts per
-// step, so after k steps the original is 1-in-(1+k*TINT_DAB_SIZE) of the
-// total - a dilution curve, not a percentage removed each time. A mixture
-// that starts darker (or is a stronger tinter, in Mixbox's latent space)
-// still needs fewer dabs to become visually solid black/white than a pale,
-// weak-tinting one, since the same dab overwhelms less pigment faster -
-// matching how real pigments differ in how quickly they "give up" toward
-// black or white as you keep stirring in more paint.
+// Modeled after how printed color atlases (Munsell's Value axis, the CIELAB-
+// based HLC Colour Atlas) handle tints and shades: instead of mixing in a
+// fixed amount or proportion of black/white and letting whatever lightness
+// falls out fall out, each step targets an evenly-spaced *perceptual*
+// lightness (OKLab L, 0-1) - the same kind of axis Munsell's Value and
+// HLC's L represent. Munsell spans black to white in 10-11 Value steps;
+// 0.1 per step matches that convention directly.
 //
-// TINT_DAB_SIZE has to stay small relative to the original's constant 1
-// part, or the "dab" isn't gradual at all: at dab=6, even a single step
-// already makes black 6-in-7 (~86%) of the mix by weight - visually
-// solid black - so the entire fade collapses into one cliff at the very
-// last step before the pure mix, instead of spreading across the slider.
-// At dab=1 the first step is only half black by weight, giving a real
-// multi-step fade.
-const TINT_DAB_SIZE = 1;
-// Upper bound on the search in stepsToConverge - even a pathologically
-// stubborn latent vector is indistinguishable from black or white well
-// before this many steps, so it only guards against an infinite loop
-// rather than reflecting a realistic pigment count.
-const TINT_STEP_SEARCH_CAP = 120;
+// A pigment's own starting lightness decides how many steps it takes to
+// reach the end (less distance to travel from a darker start), which is
+// exactly the per-pigment differentiation this feature has always been
+// after - it just now comes from evenly-paced perceptual distance instead
+// of an artifact of Kubelka-Munk mixing math (which produced either a
+// cliff or a long flat tail depending on how "dab-sized" mixing was tuned).
+const TINT_STEP_LIGHTNESS = 0.1;
+// Bisection iterations to find the mixing amount that hits a target
+// lightness - each halves the search interval, so this is far more
+// precision than an 8-bit channel needs.
+const BISECTION_ITERATIONS = 14;
 
-// The original's share of the mix (1/(1+k*TINT_DAB_SIZE)) only approaches
-// 0 asymptotically, so chasing a literal rgb(0,0,0)/(255,255,255) costs
-// several extra dabs after a mix has already become visually solid - e.g.
-// rgb(13,20,2) is indistinguishable from black on any display, but isn't
-// bit-exact black. Anything within this many 8-bit levels of 0 or 255
-// reads as pure to the eye, so "converged" is judged against this
-// tolerance instead - generous enough that, combined with the smaller
-// dab above, the slider still lands within a reasonable number of steps.
-const VISUAL_CONVERGENCE_THRESHOLD = 20;
-
-export function isConvergedBlack(rgb: RgbTuple): boolean {
-  return rgb.every((c) => c <= VISUAL_CONVERGENCE_THRESHOLD);
+function oklabLightness(rgb: RgbTuple): number {
+  return rgbToOklch(rgb).l;
 }
 
-export function isConvergedWhite(rgb: RgbTuple): boolean {
-  return rgb.every((c) => c >= 255 - VISUAL_CONVERGENCE_THRESHOLD);
-}
-
-/** Which extreme (if either) a rendered color has visually converged to,
- * for marking a grid tile as "arrived" rather than merely very dark/light. */
+/** Which extreme (if either) a rendered color is exactly pure black/white -
+ * under this model that's a deliberate snap once a step's target lightness
+ * clamps to 0 or 1 (see applyPerceptualTint), not an asymptotic approach,
+ * so exact equality is the correct check rather than a tolerance. */
 export function convergedExtreme(rgb: RgbTuple): "black" | "white" | null {
-  if (isConvergedBlack(rgb)) return "black";
-  if (isConvergedWhite(rgb)) return "white";
+  if (rgb[0] === 0 && rgb[1] === 0 && rgb[2] === 0) return "black";
+  if (rgb[0] === 255 && rgb[1] === 255 && rgb[2] === 255) return "white";
   return null;
 }
 
-/** How many fixed-size dabs (at TINT_DAB_SIZE) it takes `latent` mixed
- * toward `targetLatent` to become visually indistinguishable from it - the
- * step after which the rendered color keeps changing in theory but not in
- * anything anyone could actually see. */
-function stepsToConverge(latent: number[], targetLatent: number[], isBlack: boolean): number {
-  for (let k = 1; k <= TINT_STEP_SEARCH_CAP; k++) {
-    const rgb = mixLatentsWeighted([latent, targetLatent], [1, k * TINT_DAB_SIZE]);
-    if (isBlack ? isConvergedBlack(rgb) : isConvergedWhite(rgb)) return k;
-  }
-  return TINT_STEP_SEARCH_CAP;
+function stepsToEdge(l0: number, edge: 0 | 1): number {
+  return Math.max(1, Math.ceil(Math.abs(edge - l0) / TINT_STEP_LIGHTNESS));
 }
 
-/** The Tints slider's range for a given palette: as many steps toward
- * black as the slowest-converging selected pigment actually needs to
- * become visually solid black (the "pure" index), plus however many the
- * slowest-converging one needs toward white - so the slider's ends always
- * land on true black/white for whatever's selected, without wasting steps
- * once every pigment has already gotten there. */
+/** The Tints slider's range for a given palette: as many evenly-spaced
+ * lightness steps as the darkest selected pigment needs to reach black
+ * (the "pure" index), plus however many the lightest one needs to reach
+ * white - so the slider's ends always land on true black/white, sized to
+ * whatever's actually selected. */
 export function tintRangeForColors(colors: string[]): { pure: number; max: number } {
-  const latents = colors.map(hexToLatent);
-  const blackSteps = latents.length ? Math.max(...latents.map((l) => stepsToConverge(l, BLACK_LATENT, true))) : 1;
-  const whiteSteps = latents.length ? Math.max(...latents.map((l) => stepsToConverge(l, WHITE_LATENT, false))) : 1;
-  const pure = Math.max(blackSteps, 1);
-  return { pure, max: pure + Math.max(whiteSteps, 1) };
+  if (colors.length === 0) return { pure: 1, max: 2 };
+  const lightnesses = colors.map((hex) => oklabLightness(hexToRgb(hex)));
+  const blackSteps = Math.max(...lightnesses.map((l) => stepsToEdge(l, 0)));
+  const whiteSteps = Math.max(...lightnesses.map((l) => stepsToEdge(l, 1)));
+  return { pure: blackSteps, max: blackSteps + whiteSteps };
 }
 
-/** 0..pureIndex dabs in black, pureIndex..max dabs in white. `original`
- * stays a constant 1 part - only the accumulated dab weight grows - so
- * this composes with the vertex weights below (which already sum to 1)
- * into a single latent-space mix where black/white keeps diluting the
- * original mix rather than a fixed fraction of it being replaced. */
-export function tintWeights(tint: number, pureIndex: number): { original: number; black: number; white: number } {
+/** Blends `originalLatents` (weighted by `originalWeights`, which sum to 1)
+ * toward black or white to land on the evenly-spaced OKLab lightness this
+ * `tint` step targets, relative to `pureIndex` (the untinted mix). The
+ * blend itself is a straight latent-space interpolation between the tile's
+ * own mix and pure black/white (still real Kubelka-Munk optics along the
+ * way, so hue and chroma evolve physically) - only the *stopping point*
+ * along that line is chosen by lightness rather than by a fixed amount. */
+export function applyPerceptualTint(
+  originalLatents: number[][],
+  originalWeights: number[],
+  tint: number,
+  pureIndex: number,
+): RgbTuple {
+  const originalRgb = mixLatentsWeighted(originalLatents, originalWeights);
+  if (tint === pureIndex) return originalRgb;
+
+  const towardBlack = tint < pureIndex;
+  const targetLatent = towardBlack ? BLACK_LATENT : WHITE_LATENT;
+  const l0 = oklabLightness(originalRgb);
   const stepsFromPure = Math.abs(tint - pureIndex);
-  const dabWeight = stepsFromPure * TINT_DAB_SIZE;
-  if (tint <= pureIndex) return { original: 1, black: dabWeight, white: 0 };
-  return { original: 1, black: 0, white: dabWeight };
+  const targetL = towardBlack
+    ? Math.max(0, l0 - stepsFromPure * TINT_STEP_LIGHTNESS)
+    : Math.min(1, l0 + stepsFromPure * TINT_STEP_LIGHTNESS);
+
+  if (towardBlack && targetL <= 0) return [0, 0, 0];
+  if (!towardBlack && targetL >= 1) return [255, 255, 255];
+
+  const blendAt = (t: number): RgbTuple =>
+    mixLatentsWeighted([...originalLatents, targetLatent], [...originalWeights.map((w) => w * (1 - t)), t]);
+
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < BISECTION_ITERATIONS; i++) {
+    const mid = (lo + hi) / 2;
+    const l = oklabLightness(blendAt(mid));
+    const pastTarget = towardBlack ? l <= targetL : l >= targetL;
+    if (pastTarget) hi = mid;
+    else lo = mid;
+  }
+  return blendAt(hi);
 }
