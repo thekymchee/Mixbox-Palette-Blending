@@ -14,21 +14,30 @@ export const WHITE_LATENT = hexToLatent("#FFFFFF");
 // weak-tinting one, since the same dab overwhelms less pigment faster -
 // matching how real pigments differ in how quickly they "give up" toward
 // black or white as you keep stirring in more paint.
-const TINT_DAB_SIZE = 6;
-// Upper bound on the search in stepsToConverge - at TINT_DAB_SIZE=6 even a
-// pathologically stubborn latent vector is indistinguishable from black or
-// white well before this many steps, so it only guards against an infinite
-// loop rather than reflecting a realistic pigment count.
-const TINT_STEP_SEARCH_CAP = 60;
+//
+// TINT_DAB_SIZE has to stay small relative to the original's constant 1
+// part, or the "dab" isn't gradual at all: at dab=6, even a single step
+// already makes black 6-in-7 (~86%) of the mix by weight - visually
+// solid black - so the entire fade collapses into one cliff at the very
+// last step before the pure mix, instead of spreading across the slider.
+// At dab=1 the first step is only half black by weight, giving a real
+// multi-step fade.
+const TINT_DAB_SIZE = 1;
+// Upper bound on the search in stepsToConverge - even a pathologically
+// stubborn latent vector is indistinguishable from black or white well
+// before this many steps, so it only guards against an infinite loop
+// rather than reflecting a realistic pigment count.
+const TINT_STEP_SEARCH_CAP = 120;
 
 // The original's share of the mix (1/(1+k*TINT_DAB_SIZE)) only approaches
 // 0 asymptotically, so chasing a literal rgb(0,0,0)/(255,255,255) costs
 // several extra dabs after a mix has already become visually solid - e.g.
-// rgb(0,1,4) is indistinguishable from black on any display, but isn't
+// rgb(13,20,2) is indistinguishable from black on any display, but isn't
 // bit-exact black. Anything within this many 8-bit levels of 0 or 255
 // reads as pure to the eye, so "converged" is judged against this
-// tolerance instead.
-const VISUAL_CONVERGENCE_THRESHOLD = 4;
+// tolerance instead - generous enough that, combined with the smaller
+// dab above, the slider still lands within a reasonable number of steps.
+const VISUAL_CONVERGENCE_THRESHOLD = 20;
 
 export function isConvergedBlack(rgb: RgbTuple): boolean {
   return rgb.every((c) => c <= VISUAL_CONVERGENCE_THRESHOLD);
