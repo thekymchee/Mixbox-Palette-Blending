@@ -233,6 +233,24 @@ function drawPlus(ctx: CanvasRenderingContext2D, cx: number, cy: number, half: n
   ctx.restore();
 }
 
+/** A white-outlined dark dot - same visual language as drawPlus, so it
+ * reads equally well over both pure black and pure white tiles - marking a
+ * tile whose color has fully converged (round-tripped to exact #000000 or
+ * #FFFFFF), since a merely very-dark or very-light tile looks identical at
+ * a glance. */
+function drawConvergedDot(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 0.55, 0, Math.PI * 2);
+  ctx.fillStyle = "#1a1a1a";
+  ctx.fill();
+  ctx.restore();
+}
+
 function renderLineSteps(
   ctx: CanvasRenderingContext2D,
   colors: string[],
@@ -270,6 +288,11 @@ function renderLineSteps(
       ctx.strokeStyle = GRID_LINE_STYLE;
       ctx.lineWidth = 1;
       ctx.strokeRect(x, top, cellWidth, height);
+    }
+
+    const hex = rgbToHex(rgb);
+    if (hex === "#000000" || hex === "#FFFFFF") {
+      drawConvergedDot(ctx, x + cellWidth / 2, top + height / 2, Math.min(cellWidth, height) * 0.1);
     }
   }
 
@@ -320,6 +343,11 @@ function renderPolygonSteps(
         ctx.strokeStyle = GRID_LINE_STYLE;
         ctx.lineWidth = 1;
         ctx.strokeRect(tileX, tileY, tileSize, tileSize);
+      }
+
+      const hex = rgbToHex(rgb);
+      if (hex === "#000000" || hex === "#FFFFFF") {
+        drawConvergedDot(ctx, cx, cy, Math.max(tileSize * 0.1, 2));
       }
 
       const dist = targetAB
