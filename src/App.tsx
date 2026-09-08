@@ -217,11 +217,12 @@ function App() {
               The <strong>+</strong> marks whichever swatch's real pigment mix comes closest to the OKLab
               plane's geometric center (same point regardless of which view is shown) - not necessarily
               the swatch at the polygon's own spatial center, since real pigment mixing rarely lands on a
-              clean average. Each Tints step stirs in one more same-sized dab of black (0) or white (
-              {tintRange.max}) - so darker or stronger-tinting swatches reach a solid black/white in fewer
-              dabs than pale, weak-tinting ones, the way real pigments do. The range is recalculated for the
-              current palette: {tintRange.pure} is the pure mix, and the last selected pigment to fully
-              darken or lighten sets each side's length.
+              clean average. Each Tints step stirs in one more dab of black (0) or white ({tintRange.max}) -
+              a smaller dab toward white, since Mixbox's white behaves like real titanium white and
+              overwhelms almost any pigment at close to the same rate, so a smaller dab stretches that fade
+              back out. Darker or stronger-tinting swatches still reach solid black/white in fewer dabs than
+              pale, weak-tinting ones. The range is recalculated for the current palette: {tintRange.pure} is
+              the pure mix, and the last selected pigment to fully darken or lighten sets each side's length.
             </p>
           </div>
         </section>
