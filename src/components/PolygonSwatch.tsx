@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { meanValueCoordinates, pointInPolygon, regularPolygonVertices, type Point } from "../lib/polygon";
 import { hexToLatent, mixLatentsWeighted, rgbToHex, type RgbTuple } from "../lib/mix";
 import { rgbToOklabAB, rgbToOklch } from "../lib/color";
-import { BLACK_LATENT, WHITE_LATENT, tintRangeForColors, tintWeights } from "../lib/tint";
+import { BLACK_LATENT, WHITE_LATENT, convergedExtreme, tintRangeForColors, tintWeights } from "../lib/tint";
 
 interface PolygonSwatchProps {
   colors: string[];
@@ -290,8 +290,7 @@ function renderLineSteps(
       ctx.strokeRect(x, top, cellWidth, height);
     }
 
-    const hex = rgbToHex(rgb);
-    if (hex === "#000000" || hex === "#FFFFFF") {
+    if (convergedExtreme(rgb)) {
       drawConvergedDot(ctx, x + cellWidth / 2, top + height / 2, Math.min(cellWidth, height) * 0.1);
     }
   }
@@ -345,8 +344,7 @@ function renderPolygonSteps(
         ctx.strokeRect(tileX, tileY, tileSize, tileSize);
       }
 
-      const hex = rgbToHex(rgb);
-      if (hex === "#000000" || hex === "#FFFFFF") {
+      if (convergedExtreme(rgb)) {
         drawConvergedDot(ctx, cx, cy, Math.max(tileSize * 0.1, 2));
       }
 
