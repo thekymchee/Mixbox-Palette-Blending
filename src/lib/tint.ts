@@ -6,39 +6,29 @@ export const WHITE_LATENT = hexToLatent("#FFFFFF");
 // Each Tints step stirs in one more fixed-size dab of black or white paint
 // - the dab itself doesn't grow or shrink, unlike a proportional/compounding
 // mix. In parts-of-paint terms: the original mix stays at a constant 1
-// part, while accumulated black or white grows by one dab's worth per
-// step, so after k steps the original is 1-in-(1+k*dab) of the total - a
-// dilution curve, not a percentage removed each time. A mixture that
-// starts darker (or is a stronger tinter, in Mixbox's latent space) still
-// needs fewer dabs to become visually solid black/white than a pale,
+// part, while accumulated black or white grows by TINT_DAB_SIZE parts per
+// step, so after k steps the original is 1-in-(1+k*TINT_DAB_SIZE) of the
+// total - a dilution curve, not a percentage removed each time. A mixture
+// that starts darker (or is a stronger tinter, in Mixbox's latent space)
+// still needs fewer dabs to become visually solid black/white than a pale,
 // weak-tinting one, since the same dab overwhelms less pigment faster -
 // matching how real pigments differ in how quickly they "give up" toward
 // black or white as you keep stirring in more paint.
-//
-// The two sides use different dab sizes on purpose. Mixbox's white pigment
-// behaves like real titanium white: extremely strong-scattering, so it
-// overwhelms almost any pigment at close to the same rate regardless of
-// how dark that pigment started - a small black dab already shows strong
-// per-pigment spread, but the same-sized white dab compresses everything
-// into too few steps to see that dilution happening. Cutting the white dab
-// down stretches that side back out into a visible fade.
-const TINT_DAB_SIZE_BLACK = 6;
-const TINT_DAB_SIZE_WHITE = 2;
-// Upper bound on the search in stepsToConverge - even a pathologically
-// stubborn latent vector is indistinguishable from black or white well
-// before this many steps, so it only guards against an infinite loop
-// rather than reflecting a realistic pigment count.
-const TINT_STEP_SEARCH_CAP = 120;
+const TINT_DAB_SIZE = 6;
+// Upper bound on the search in stepsToConverge - at TINT_DAB_SIZE=6 even a
+// pathologically stubborn latent vector is indistinguishable from black or
+// white well before this many steps, so it only guards against an infinite
+// loop rather than reflecting a realistic pigment count.
+const TINT_STEP_SEARCH_CAP = 60;
 
-// The original's share of the mix (1/(1+k*dab)) only approaches 0
-// asymptotically, so chasing a literal rgb(0,0,0)/(255,255,255) costs
+// The original's share of the mix (1/(1+k*TINT_DAB_SIZE)) only approaches
+// 0 asymptotically, so chasing a literal rgb(0,0,0)/(255,255,255) costs
 // several extra dabs after a mix has already become visually solid - e.g.
-// rgb(7,11,1) already reads as black to the eye, but isn't bit-exact.
-// Anything within this many 8-bit levels of 0 or 255 counts as pure, so
-// "converged" is judged against this tolerance instead - generous enough
-// that a typical saturated pigment (not just near-grays) reads as done
-// within a handful of dabs, matching what it actually looks like on screen.
-const VISUAL_CONVERGENCE_THRESHOLD = 12;
+// rgb(0,1,4) is indistinguishable from black on any display, but isn't
+// bit-exact black. Anything within this many 8-bit levels of 0 or 255
+// reads as pure to the eye, so "converged" is judged against this
+// tolerance instead.
+const VISUAL_CONVERGENCE_THRESHOLD = 4;
 
 export function isConvergedBlack(rgb: RgbTuple): boolean {
   return rgb.every((c) => c <= VISUAL_CONVERGENCE_THRESHOLD);
@@ -56,14 +46,13 @@ export function convergedExtreme(rgb: RgbTuple): "black" | "white" | null {
   return null;
 }
 
-/** How many fixed-size dabs it takes `latent` mixed toward `targetLatent`
- * to become visually indistinguishable from it - the step after which the
- * rendered color keeps changing in theory but not in anything anyone could
- * actually see. */
+/** How many fixed-size dabs (at TINT_DAB_SIZE) it takes `latent` mixed
+ * toward `targetLatent` to become visually indistinguishable from it - the
+ * step after which the rendered color keeps changing in theory but not in
+ * anything anyone could actually see. */
 function stepsToConverge(latent: number[], targetLatent: number[], isBlack: boolean): number {
-  const dabSize = isBlack ? TINT_DAB_SIZE_BLACK : TINT_DAB_SIZE_WHITE;
   for (let k = 1; k <= TINT_STEP_SEARCH_CAP; k++) {
-    const rgb = mixLatentsWeighted([latent, targetLatent], [1, k * dabSize]);
+    const rgb = mixLatentsWeighted([latent, targetLatent], [1, k * TINT_DAB_SIZE]);
     if (isBlack ? isConvergedBlack(rgb) : isConvergedWhite(rgb)) return k;
   }
   return TINT_STEP_SEARCH_CAP;
@@ -90,6 +79,7 @@ export function tintRangeForColors(colors: string[]): { pure: number; max: numbe
  * original mix rather than a fixed fraction of it being replaced. */
 export function tintWeights(tint: number, pureIndex: number): { original: number; black: number; white: number } {
   const stepsFromPure = Math.abs(tint - pureIndex);
-  if (tint <= pureIndex) return { original: 1, black: stepsFromPure * TINT_DAB_SIZE_BLACK, white: 0 };
-  return { original: 1, black: 0, white: stepsFromPure * TINT_DAB_SIZE_WHITE };
+  const dabWeight = stepsFromPure * TINT_DAB_SIZE;
+  if (tint <= pureIndex) return { original: 1, black: dabWeight, white: 0 };
+  return { original: 1, black: 0, white: dabWeight };
 }
