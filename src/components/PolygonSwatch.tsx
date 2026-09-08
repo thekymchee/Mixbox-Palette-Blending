@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { meanValueCoordinates, pointInPolygon, regularPolygonVertices, type Point } from "../lib/polygon";
-import { hexToLatent, mixLatentsWeighted, rgbToHex, type RgbTuple } from "../lib/mix";
+import { hexToLatent, rgbToHex, type RgbTuple } from "../lib/mix";
 import { rgbToOklabAB, rgbToOklch } from "../lib/color";
-import { BLACK_LATENT, WHITE_LATENT, convergedExtreme, tintRangeForColors, tintWeights } from "../lib/tint";
+import { applyPerceptualTint, convergedExtreme, tintRangeForColors } from "../lib/tint";
 
 interface PolygonSwatchProps {
   colors: string[];
@@ -174,7 +174,6 @@ function colorAtPoint(
   y: number,
 ): RgbTuple | null {
   const latents = colors.map(hexToLatent);
-  const { original, black, white } = tintWeights(tint, tintPure);
 
   if (colors.length === 2) {
     const { margin, top, height, width } = lineGeometry(size);
@@ -182,10 +181,7 @@ function colorAtPoint(
     const cellWidth = width / steps;
     const i = Math.min(steps - 1, Math.max(0, Math.floor((x - margin) / cellWidth)));
     const t = steps === 1 ? 0.5 : i / (steps - 1);
-    return mixLatentsWeighted(
-      [...latents, BLACK_LATENT, WHITE_LATENT],
-      [(1 - t) * original, t * original, black, white],
-    );
+    return applyPerceptualTint(latents, [1 - t, t], tint, tintPure);
   }
 
   const { vertices, gridSize, gridMin } = polygonGeometry(colors.length, size);
@@ -198,10 +194,7 @@ function colorAtPoint(
   if (!pointInPolygon(tileCenter, vertices)) return null;
 
   const weights = meanValueCoordinates(tileCenter, vertices);
-  return mixLatentsWeighted(
-    [...latents, BLACK_LATENT, WHITE_LATENT],
-    [...weights.map((w) => w * original), black, white],
-  );
+  return applyPerceptualTint(latents, weights, tint, tintPure);
 }
 
 function colorDistanceSq(a: { a: number; b: number }, b: { a: number; b: number }): number {
@@ -263,8 +256,7 @@ function renderLineSteps(
   const { margin, top, height } = lineGeometry(size);
   const width = size - margin * 2;
   const cellWidth = width / steps;
-  const latentsWithBW = [...colors.map(hexToLatent), BLACK_LATENT, WHITE_LATENT];
-  const { original, black, white } = tintWeights(tint, tintPure);
+  const latents = colors.map(hexToLatent);
   const drawBorder = cellWidth >= MIN_TILE_SIZE_FOR_BORDER;
 
   let nearestIndex = 0;
@@ -273,7 +265,7 @@ function renderLineSteps(
   for (let i = 0; i < steps; i++) {
     const t = steps === 1 ? 0.5 : i / (steps - 1);
 
-    const rgb = mixLatentsWeighted(latentsWithBW, [(1 - t) * original, t * original, black, white]);
+    const rgb = applyPerceptualTint(latents, [1 - t, t], tint, tintPure);
     const dist = targetAB ? colorDistanceSq(rgbToOklabAB(rgb), targetAB) : Math.abs(t - 0.5);
     if (dist < nearestDist) {
       nearestDist = dist;
@@ -315,8 +307,7 @@ function renderPolygonSteps(
   targetAB: { a: number; b: number } | null,
 ) {
   const { vertices, circleCenter, gridSize, gridMin } = polygonGeometry(colors.length, size);
-  const latentsWithBW = [...colors.map(hexToLatent), BLACK_LATENT, WHITE_LATENT];
-  const { original, black, white } = tintWeights(tint, tintPure);
+  const latents = colors.map(hexToLatent);
   const tileSize = gridSize / steps;
   const drawBorder = tileSize >= MIN_TILE_SIZE_FOR_BORDER;
 
@@ -332,7 +323,7 @@ function renderPolygonSteps(
       if (!pointInPolygon({ x: cx, y: cy }, vertices)) continue;
 
       const weights = meanValueCoordinates({ x: cx, y: cy }, vertices);
-      const rgb = mixLatentsWeighted(latentsWithBW, [...weights.map((w) => w * original), black, white]);
+      const rgb = applyPerceptualTint(latents, weights, tint, tintPure);
       const [r, g, b] = rgb;
       const tileX = gridMin + tileSize * col;
       const tileY = gridMin + tileSize * row;

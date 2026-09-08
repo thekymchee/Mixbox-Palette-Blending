@@ -217,11 +217,12 @@ function App() {
               The <strong>+</strong> marks whichever swatch's real pigment mix comes closest to the OKLab
               plane's geometric center (same point regardless of which view is shown) - not necessarily
               the swatch at the polygon's own spatial center, since real pigment mixing rarely lands on a
-              clean average. Each Tints step stirs in one more same-sized dab of black (0) or white (
-              {tintRange.max}) - so darker or stronger-tinting swatches reach a solid black/white in fewer
-              dabs than pale, weak-tinting ones, the way real pigments do. The range is recalculated for the
-              current palette: {tintRange.pure} is the pure mix, and the last selected pigment to fully
-              darken or lighten sets each side's length.
+              clean average. Each Tints step moves black (0) or white ({tintRange.max}) by an even slice of
+              perceptual lightness, the way Munsell's Value axis and the CIELAB-based HLC Colour Atlas step
+              their tint scales - so darker swatches need fewer steps to reach solid black than pale ones
+              (less lightness left to travel), while every step looks like an equal amount of change. The
+              range is recalculated for the current palette: {tintRange.pure} is the pure mix, and the
+              darkest/lightest selected pigment sets each side's length.
             </p>
           </div>
         </section>
