@@ -3,7 +3,8 @@ import { ColorWheel } from "./components/ColorWheel";
 import { ColorPlane } from "./components/ColorPlane";
 import { PigmentPanel, type PigmentTab } from "./components/PigmentPanel";
 import { ColorSlots } from "./components/ColorSlots";
-import { PolygonSwatch, TINT_MAX, TINT_PURE } from "./components/PolygonSwatch";
+import { PolygonSwatch } from "./components/PolygonSwatch";
+import { tintRangeForColors } from "./lib/tint";
 import { loadPigments, savePigments, type Pigment } from "./lib/pigments";
 import { WINSOR_NEWTON_PIGMENTS } from "./lib/winsorNewtonPigments";
 import { colorsCentroidAB } from "./lib/color";
@@ -19,7 +20,7 @@ function App() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [lightness, setLightness] = useState(0.75);
   const [steps, setSteps] = useState(5);
-  const [tint, setTint] = useState(TINT_PURE);
+  const [rawTint, setRawTint] = useState(() => tintRangeForColors(colors.slice(0, count)).pure);
   const [wheelView, setWheelView] = useState<WheelView>("circle");
   const [pigmentTab, setPigmentTab] = useState<PigmentTab>("mine");
 
@@ -35,6 +36,16 @@ function App() {
   }, []);
 
   const activeColors = useMemo(() => colors.slice(0, count), [colors, count]);
+
+  // How many Tints steps it actually takes the slowest-converging selected
+  // pigment to round to solid black, and separately to white - recomputed
+  // whenever the palette changes, instead of a fixed step count for every
+  // palette.
+  const tintRange = useMemo(() => tintRangeForColors(activeColors), [activeColors]);
+  // Clamped at read time rather than written back into state, so a range
+  // that later grows again (e.g. switching palettes back and forth) can
+  // restore the original position instead of it having been lost.
+  const tint = Math.min(rawTint, tintRange.max);
 
   const wheelSelectedColors = useMemo(
     () => activeColors.map((hex, i) => ({ hex, label: String(i + 1) })),
@@ -183,11 +194,11 @@ function App() {
                 Tints: {tint} (
                 {tint === 0
                   ? "black"
-                  : tint === TINT_MAX
+                  : tint === tintRange.max
                     ? "white"
-                    : tint === TINT_PURE
+                    : tint === tintRange.pure
                       ? "pure mix"
-                      : tint < TINT_PURE
+                      : tint < tintRange.pure
                         ? "shade"
                         : "tint"}
                 )
@@ -196,20 +207,22 @@ function App() {
                 id="tint-slider"
                 type="range"
                 min={0}
-                max={TINT_MAX}
+                max={tintRange.max}
                 step={1}
                 value={tint}
-                onChange={(e) => setTint(Number(e.target.value))}
+                onChange={(e) => setRawTint(Number(e.target.value))}
               />
             </div>
             <p className="hint-text">
               The <strong>+</strong> marks whichever swatch's real pigment mix comes closest to the OKLab
               plane's geometric center (same point regardless of which view is shown) - not necessarily
               the swatch at the polygon's own spatial center, since real pigment mixing rarely lands on a
-              clean average. Each Tints step mixes in a fixed proportion of black (0) or white ({TINT_MAX})
-              relative to what's already there, compounding step by step like repeatedly stirring in a dab
-              of paint - so darker or stronger-tinting swatches reach a solid black/white in fewer steps
-              than pale, weak-tinting ones, the way real pigments do. {TINT_PURE} is the pure mix.
+              clean average. Each Tints step mixes in a fixed proportion of black (0) or white (
+              {tintRange.max}) relative to what's already there, compounding step by step like repeatedly
+              stirring in a dab of paint - so darker or stronger-tinting swatches reach a solid black/white
+              in fewer steps than pale, weak-tinting ones, the way real pigments do. The range is
+              recalculated for the current palette: {tintRange.pure} is the pure mix, and the last selected
+              pigment to fully darken or lighten sets each side's length.
             </p>
           </div>
         </section>

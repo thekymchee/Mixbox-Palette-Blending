@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { meanValueCoordinates, pointInPolygon, regularPolygonVertices, type Point } from "../lib/polygon";
 import { hexToLatent, mixLatentsWeighted, rgbToHex, type RgbTuple } from "../lib/mix";
 import { rgbToOklabAB, rgbToOklch } from "../lib/color";
+import { BLACK_LATENT, WHITE_LATENT, tintRangeForColors, tintWeights } from "../lib/tint";
 
 interface PolygonSwatchProps {
   colors: string[];
@@ -26,13 +27,11 @@ interface HoverState {
 const clipboardSupported =
   typeof navigator !== "undefined" && !!navigator.clipboard?.write && typeof window.ClipboardItem !== "undefined";
 
-const BLACK_LATENT = hexToLatent("#000000");
-const WHITE_LATENT = hexToLatent("#FFFFFF");
-
 export function PolygonSwatch({ colors, steps, tint, size, targetAB }: PolygonSwatchProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const tintPure = useMemo(() => tintRangeForColors(colors).pure, [colors]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -46,18 +45,18 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB }: PolygonSw
     if (colors.length < 2) return;
 
     if (colors.length === 2) {
-      renderLineSteps(ctx, colors, steps, tint, size, targetAB);
+      renderLineSteps(ctx, colors, steps, tint, tintPure, size, targetAB);
       return;
     }
 
-    renderPolygonSteps(ctx, colors, steps, tint, size, targetAB);
-  }, [colors, steps, tint, size, targetAB]);
+    renderPolygonSteps(ctx, colors, steps, tint, tintPure, size, targetAB);
+  }, [colors, steps, tint, tintPure, size, targetAB]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const rgb = colors.length >= 2 ? colorAtPoint(colors, steps, tint, size, x, y) : null;
+    const rgb = colors.length >= 2 ? colorAtPoint(colors, steps, tint, tintPure, size, x, y) : null;
     setHover(rgb ? { x, y, hex: rgbToHex(rgb), oklch: rgbToOklch(rgb) } : null);
   };
 
@@ -126,34 +125,6 @@ const MIN_TILE_SIZE_FOR_BORDER = 3;
 // don't leave a dead margin below their flat base.
 const FILL_FRACTION = 0.92;
 
-// Each Tints step mixes in a fixed 40% (1 - TINT_RATIO) of black or white
-// relative to whatever remains of the mix so far, compounding step over
-// step - like repeatedly stirring in a dab of black paint - rather than
-// interpolating in one shot to a target fraction. Because it's the
-// *remaining* pigment that shrinks by a fixed proportion each step, a
-// mixture that starts darker (or is a stronger tinter, in Mixbox's latent
-// space) reaches a rounding-indistinguishable black in fewer steps than a
-// pale, weak-tinting one - matching how real pigments differ in how
-// quickly they "give up" toward black or white. TINT_STEPS_PER_SIDE=13
-// was picked empirically: with TINT_RATIO=0.6 it's enough steps for even
-// pure white/black themselves (the most extreme case) to round to exact
-// #000000/#FFFFFF by the last step, while realistic pigments in between
-// arrive anywhere from ~9 to ~13 steps in.
-const TINT_RATIO = 0.6;
-export const TINT_STEPS_PER_SIDE = 13;
-export const TINT_PURE = TINT_STEPS_PER_SIDE;
-export const TINT_MAX = TINT_STEPS_PER_SIDE * 2;
-
-/** 0..TINT_PURE compounds toward black, TINT_PURE..TINT_MAX compounds
- * toward white; weights sum to 1 so this composes with the vertex weights
- * below into a single latent-space mix. */
-function tintWeights(tint: number): { original: number; black: number; white: number } {
-  const stepsFromPure = Math.abs(tint - TINT_PURE);
-  const original = TINT_RATIO ** stepsFromPure;
-  if (tint <= TINT_PURE) return { original, black: 1 - original, white: 0 };
-  return { original, black: 0, white: 1 - original };
-}
-
 function lineGeometry(size: number) {
   const margin = size * 0.06;
   const height = size * 0.5;
@@ -193,9 +164,17 @@ function polygonGeometry(n: number, size: number) {
 
 /** Looks up the exact color rendered at a canvas point, using the same
  * tile geometry as the render functions below, for the hover tooltip. */
-function colorAtPoint(colors: string[], steps: number, tint: number, size: number, x: number, y: number): RgbTuple | null {
+function colorAtPoint(
+  colors: string[],
+  steps: number,
+  tint: number,
+  tintPure: number,
+  size: number,
+  x: number,
+  y: number,
+): RgbTuple | null {
   const latents = colors.map(hexToLatent);
-  const { original, black, white } = tintWeights(tint);
+  const { original, black, white } = tintWeights(tint, tintPure);
 
   if (colors.length === 2) {
     const { margin, top, height, width } = lineGeometry(size);
@@ -259,6 +238,7 @@ function renderLineSteps(
   colors: string[],
   steps: number,
   tint: number,
+  tintPure: number,
   size: number,
   targetAB: { a: number; b: number } | null,
 ) {
@@ -266,7 +246,7 @@ function renderLineSteps(
   const width = size - margin * 2;
   const cellWidth = width / steps;
   const latentsWithBW = [...colors.map(hexToLatent), BLACK_LATENT, WHITE_LATENT];
-  const { original, black, white } = tintWeights(tint);
+  const { original, black, white } = tintWeights(tint, tintPure);
   const drawBorder = cellWidth >= MIN_TILE_SIZE_FOR_BORDER;
 
   let nearestIndex = 0;
@@ -308,12 +288,13 @@ function renderPolygonSteps(
   colors: string[],
   steps: number,
   tint: number,
+  tintPure: number,
   size: number,
   targetAB: { a: number; b: number } | null,
 ) {
   const { vertices, circleCenter, gridSize, gridMin } = polygonGeometry(colors.length, size);
   const latentsWithBW = [...colors.map(hexToLatent), BLACK_LATENT, WHITE_LATENT];
-  const { original, black, white } = tintWeights(tint);
+  const { original, black, white } = tintWeights(tint, tintPure);
   const tileSize = gridSize / steps;
   const drawBorder = tileSize >= MIN_TILE_SIZE_FOR_BORDER;
 
