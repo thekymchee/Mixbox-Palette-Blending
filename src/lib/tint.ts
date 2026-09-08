@@ -1,4 +1,4 @@
-import { hexToLatent, mixLatentsWeighted, rgbToHex } from "./mix";
+import { hexToLatent, mixLatentsWeighted, type RgbTuple } from "./mix";
 
 export const BLACK_LATENT = hexToLatent("#000000");
 export const WHITE_LATENT = hexToLatent("#FFFFFF");
@@ -19,28 +19,53 @@ const TINT_RATIO = 0.6;
 // loop rather than reflecting a realistic pigment count.
 const TINT_STEP_SEARCH_CAP = 40;
 
+// Because 0.6^k only approaches 0 asymptotically, chasing a literal
+// rgb(0,0,0)/(255,255,255) costs several extra steps after a mix has
+// already become visually solid - e.g. rgb(0,1,4) is indistinguishable
+// from black on any display, but isn't bit-exact black. Anything within
+// this many 8-bit levels of 0 or 255 reads as pure to the eye, so
+// "converged" is judged against this tolerance instead.
+const VISUAL_CONVERGENCE_THRESHOLD = 4;
+
+export function isConvergedBlack(rgb: RgbTuple): boolean {
+  return rgb.every((c) => c <= VISUAL_CONVERGENCE_THRESHOLD);
+}
+
+export function isConvergedWhite(rgb: RgbTuple): boolean {
+  return rgb.every((c) => c >= 255 - VISUAL_CONVERGENCE_THRESHOLD);
+}
+
+/** Which extreme (if either) a rendered color has visually converged to,
+ * for marking a grid tile as "arrived" rather than merely very dark/light. */
+export function convergedExtreme(rgb: RgbTuple): "black" | "white" | null {
+  if (isConvergedBlack(rgb)) return "black";
+  if (isConvergedWhite(rgb)) return "white";
+  return null;
+}
+
 /** How many compounding steps (at TINT_RATIO) it takes `latent` mixed
- * toward `targetLatent` to round to `targetHex` under 8-bit color - i.e.
- * the step after which the rendered color stops changing any further. */
-function stepsToConverge(latent: number[], targetLatent: number[], targetHex: string): number {
+ * toward `targetLatent` to become visually indistinguishable from it - the
+ * step after which the rendered color keeps changing in theory but not in
+ * anything anyone could actually see. */
+function stepsToConverge(latent: number[], targetLatent: number[], isBlack: boolean): number {
   for (let k = 0; k <= TINT_STEP_SEARCH_CAP; k++) {
     const original = TINT_RATIO ** k;
     const rgb = mixLatentsWeighted([latent, targetLatent], [original, 1 - original]);
-    if (rgbToHex(rgb) === targetHex) return k;
+    if (isBlack ? isConvergedBlack(rgb) : isConvergedWhite(rgb)) return k;
   }
   return TINT_STEP_SEARCH_CAP;
 }
 
 /** The Tints slider's range for a given palette: as many steps toward
  * black as the slowest-converging selected pigment actually needs to
- * round to solid black (the "pure" index), plus however many the
+ * become visually solid black (the "pure" index), plus however many the
  * slowest-converging one needs toward white - so the slider's ends always
  * land on true black/white for whatever's selected, without wasting steps
  * once every pigment has already gotten there. */
 export function tintRangeForColors(colors: string[]): { pure: number; max: number } {
   const latents = colors.map(hexToLatent);
-  const blackSteps = latents.length ? Math.max(...latents.map((l) => stepsToConverge(l, BLACK_LATENT, "#000000"))) : 1;
-  const whiteSteps = latents.length ? Math.max(...latents.map((l) => stepsToConverge(l, WHITE_LATENT, "#FFFFFF"))) : 1;
+  const blackSteps = latents.length ? Math.max(...latents.map((l) => stepsToConverge(l, BLACK_LATENT, true))) : 1;
+  const whiteSteps = latents.length ? Math.max(...latents.map((l) => stepsToConverge(l, WHITE_LATENT, false))) : 1;
   const pure = Math.max(blackSteps, 1);
   return { pure, max: pure + Math.max(whiteSteps, 1) };
 }
