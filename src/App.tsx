@@ -3,7 +3,7 @@ import { ColorWheel } from "./components/ColorWheel";
 import { ColorPlane } from "./components/ColorPlane";
 import { PigmentPanel, type PigmentTab } from "./components/PigmentPanel";
 import { ColorSlots } from "./components/ColorSlots";
-import { PolygonSwatch } from "./components/PolygonSwatch";
+import { PolygonSwatch, type GridMode } from "./components/PolygonSwatch";
 import { tintRangeForColors } from "./lib/tint";
 import { loadPigments, savePigments, type Pigment } from "./lib/pigments";
 import { WINSOR_NEWTON_PIGMENTS } from "./lib/winsorNewtonPigments";
@@ -20,6 +20,7 @@ function App() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [lightness, setLightness] = useState(0.75);
   const [steps, setSteps] = useState(5);
+  const [gridMode, setGridMode] = useState<GridMode>("squares");
   const [rawTint, setRawTint] = useState(() => tintRangeForColors(colors.slice(0, count)).pure);
   const [wheelView, setWheelView] = useState<WheelView>("circle");
   const [pigmentTab, setPigmentTab] = useState<PigmentTab>("mine");
@@ -175,8 +176,29 @@ function App() {
           <div className="panel swatch-panel">
             <div className="panel-header">
               <h2>Blended Swatch</h2>
+              {count >= 3 && (
+                <div className="view-toggle">
+                  <button
+                    type="button"
+                    className={gridMode === "squares" ? "active" : ""}
+                    onClick={() => setGridMode("squares")}
+                  >
+                    Squares
+                  </button>
+                  <button type="button" className={gridMode === "fan" ? "active" : ""} onClick={() => setGridMode("fan")}>
+                    Fan
+                  </button>
+                </div>
+              )}
             </div>
-            <PolygonSwatch colors={activeColors} steps={steps} tint={tint} size={460} targetAB={centroidAB} />
+            <PolygonSwatch
+              colors={activeColors}
+              steps={steps}
+              tint={tint}
+              size={460}
+              targetAB={centroidAB}
+              gridMode={gridMode}
+            />
             <div className="slider-row steps-row">
               <label htmlFor="steps-slider">Steps: {steps}</label>
               <input

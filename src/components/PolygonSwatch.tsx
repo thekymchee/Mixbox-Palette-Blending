@@ -1,14 +1,30 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { meanValueCoordinates, pointInPolygon, regularPolygonVertices, type Point } from "../lib/polygon";
+import {
+  fanTriangleFillWeights,
+  fanTriangleMesh,
+  meanValueCoordinates,
+  oneHotWeights,
+  pointInPolygon,
+  regularPolygonVertices,
+  type Point,
+} from "../lib/polygon";
 import { hexToLatent, rgbToHex, type RgbTuple } from "../lib/mix";
 import { rgbToOklabAB, rgbToOklch } from "../lib/color";
 import { applyPerceptualTint, convergedExtreme, tintRangeForColors } from "../lib/tint";
+
+export type GridMode = "squares" | "fan";
 
 interface PolygonSwatchProps {
   colors: string[];
   steps: number;
   tint: number;
   size: number;
+  /** "squares" clips a Cartesian tile grid to the polygon, then snaps only
+   * the tile nearest each vertex to a pure color. "fan" builds the grid
+   * directly in weight-space (see fanTriangleMesh) so every vertex is an
+   * exact lattice point with no snapping needed. Ignored for the 2-color
+   * line case, which is already exact at both ends. */
+  gridMode: GridMode;
   /** The OKLab plane's geometric-center point (plain average of the
    * selected colors' OKLab a/b - the same point regardless of which wheel
    * view is currently shown), so the swatch's "+" can mark whichever tile's
@@ -27,11 +43,14 @@ interface HoverState {
 const clipboardSupported =
   typeof navigator !== "undefined" && !!navigator.clipboard?.write && typeof window.ClipboardItem !== "undefined";
 
-export function PolygonSwatch({ colors, steps, tint, size, targetAB }: PolygonSwatchProps) {
+export function PolygonSwatch({ colors, steps, tint, size, targetAB, gridMode }: PolygonSwatchProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const tintPure = useMemo(() => tintRangeForColors(colors).pure, [colors]);
+  // Populated by renderFanSteps so hover hit-testing can reuse the exact
+  // triangles/colors just drawn, instead of recomputing fan geometry.
+  const fanMeshRef = useRef<{ points: [Point, Point, Point]; rgb: RgbTuple }[]>([]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -49,14 +68,24 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB }: PolygonSw
       return;
     }
 
+    if (gridMode === "fan") {
+      fanMeshRef.current = renderFanSteps(ctx, colors, steps, tint, tintPure, size, targetAB);
+      return;
+    }
+
     renderPolygonSteps(ctx, colors, steps, tint, tintPure, size, targetAB);
-  }, [colors, steps, tint, tintPure, size, targetAB]);
+  }, [colors, steps, tint, tintPure, size, targetAB, gridMode]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const rgb = colors.length >= 2 ? colorAtPoint(colors, steps, tint, tintPure, size, x, y) : null;
+    const rgb =
+      colors.length >= 3 && gridMode === "fan"
+        ? colorAtPointFan(fanMeshRef.current, x, y)
+        : colors.length >= 2
+          ? colorAtPoint(colors, steps, tint, tintPure, size, x, y)
+          : null;
     setHover(rgb ? { x, y, hex: rgbToHex(rgb), oklch: rgbToOklch(rgb) } : null);
   };
 
@@ -229,10 +258,24 @@ function nearestTilePerVertex(steps: number, gridMin: number, tileSize: number, 
   return tileToVertex;
 }
 
-function oneHotWeights(n: number, index: number): number[] {
-  const weights = new Array(n).fill(0);
-  weights[index] = 1;
-  return weights;
+function pointInTriangle(p: Point, [a, b, c]: [Point, Point, Point]): boolean {
+  const cross = (o: Point, u: Point, v: Point) => (u.x - o.x) * (v.y - o.y) - (u.y - o.y) * (v.x - o.x);
+  const d1 = cross(a, b, p);
+  const d2 = cross(b, c, p);
+  const d3 = cross(c, a, p);
+  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+  const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(hasNeg && hasPos);
+}
+
+/** Looks up the color of whichever fan triangle contains (x, y), reusing
+ * the mesh renderFanSteps just drew rather than recomputing fan geometry. */
+function colorAtPointFan(mesh: { points: [Point, Point, Point]; rgb: RgbTuple }[], x: number, y: number): RgbTuple | null {
+  const p: Point = { x, y };
+  for (const tri of mesh) {
+    if (pointInTriangle(p, tri.points)) return tri.rgb;
+  }
+  return null;
 }
 
 function colorDistanceSq(a: { a: number; b: number }, b: { a: number; b: number }): number {
@@ -392,4 +435,65 @@ function renderPolygonSteps(
   }
 
   drawPlus(ctx, nearestCx, nearestCy, Math.max(tileSize * 0.22, 4));
+}
+
+/** Fan-triangulation grid: the polygon is triangulated into wedges from its
+ * centroid, then each wedge is subdivided into a `steps`-deep barycentric
+ * lattice (see fanTriangleMesh) - vertices are always exact lattice points,
+ * so no post-hoc "snap the nearest tile" fix is needed for pure corners. */
+function renderFanSteps(
+  ctx: CanvasRenderingContext2D,
+  colors: string[],
+  steps: number,
+  tint: number,
+  tintPure: number,
+  size: number,
+  targetAB: { a: number; b: number } | null,
+): { points: [Point, Point, Point]; rgb: RgbTuple }[] {
+  const { vertices, circleCenter } = polygonGeometry(colors.length, size);
+  const latents = colors.map(hexToLatent);
+  const triangles = fanTriangleMesh(vertices, steps);
+  const drawBorder = size / steps >= MIN_TILE_SIZE_FOR_BORDER;
+
+  const mesh: { points: [Point, Point, Point]; rgb: RgbTuple }[] = [];
+  let nearestCx = circleCenter.x;
+  let nearestCy = circleCenter.y;
+  let nearestDist = Infinity;
+
+  for (const tri of triangles) {
+    const weights = fanTriangleFillWeights(tri.cornerWeights);
+    const rgb = applyPerceptualTint(latents, weights, tint, tintPure);
+    mesh.push({ points: tri.points, rgb });
+
+    const [r, g, b] = rgb;
+    const [p0, p1, p2] = tri.points;
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.closePath();
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    ctx.fill();
+    if (drawBorder) {
+      ctx.strokeStyle = GRID_LINE_STYLE;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    const cx = (p0.x + p1.x + p2.x) / 3;
+    const cy = (p0.y + p1.y + p2.y) / 3;
+    if (convergedExtreme(rgb)) {
+      drawConvergedDot(ctx, cx, cy, Math.max((size / steps) * 0.1, 2));
+    }
+
+    const dist = targetAB ? colorDistanceSq(rgbToOklabAB(rgb), targetAB) : Math.hypot(cx - circleCenter.x, cy - circleCenter.y);
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearestCx = cx;
+      nearestCy = cy;
+    }
+  }
+
+  drawPlus(ctx, nearestCx, nearestCy, Math.max((size / steps) * 0.22, 4));
+  return mesh;
 }

@@ -64,6 +64,88 @@ export function meanValueCoordinates(p: Point, vertices: Point[]): number[] {
   return w;
 }
 
+export function oneHotWeights(n: number, index: number): number[] {
+  const weights = new Array(n).fill(0);
+  weights[index] = 1;
+  return weights;
+}
+
+export interface FanTriangle {
+  points: [Point, Point, Point];
+  /** Weight vectors at each of the 3 corners, in the same order as `points`. */
+  cornerWeights: [number[], number[], number[]];
+}
+
+/** Generalizes a ternary plot's "build the grid in weight-space" trick
+ * (exact at n=3 since a triangle already is a 2-simplex) to any n: fan-
+ * triangulates the n-gon into n wedges from its centroid, then subdivides
+ * each wedge (centroid, vertex i, vertex i+1) into a `steps`-deep
+ * barycentric lattice. Every lattice point's weight vector is a linear
+ * combination of the centroid (average of all n colors) and the two wedge
+ * vertices (one-hot), computed directly from its lattice position - so a
+ * polygon's own vertices are always exact lattice points (weight 1 there),
+ * unlike sampling a Cartesian pixel/tile grid and converting to weights
+ * after the fact, which almost never lands exactly on a vertex. */
+export function fanTriangleMesh(vertices: Point[], steps: number): FanTriangle[] {
+  const n = vertices.length;
+  const centroid: Point = {
+    x: vertices.reduce((sum, v) => sum + v.x, 0) / n,
+    y: vertices.reduce((sum, v) => sum + v.y, 0) / n,
+  };
+  const centroidWeights = new Array(n).fill(1 / n);
+  const triangles: FanTriangle[] = [];
+
+  for (let e = 0; e < n; e++) {
+    const v1 = vertices[e];
+    const v2 = vertices[(e + 1) % n];
+    const w1 = oneHotWeights(n, e);
+    const w2 = oneHotWeights(n, (e + 1) % n);
+
+    const latticePoint = (i: number, j: number): { point: Point; weights: number[] } => {
+      const k = steps - i - j;
+      const fi = i / steps;
+      const fj = j / steps;
+      const fk = k / steps;
+      return {
+        point: {
+          x: centroid.x * fk + v1.x * fi + v2.x * fj,
+          y: centroid.y * fk + v1.y * fi + v2.y * fj,
+        },
+        weights: centroidWeights.map((cw, idx) => cw * fk + w1[idx] * fi + w2[idx] * fj),
+      };
+    };
+
+    for (let i = 0; i < steps; i++) {
+      for (let j = 0; j < steps - i; j++) {
+        const a = latticePoint(i, j);
+        const b = latticePoint(i + 1, j);
+        const c = latticePoint(i, j + 1);
+        triangles.push({ points: [a.point, b.point, c.point], cornerWeights: [a.weights, b.weights, c.weights] });
+
+        if (i + j + 2 <= steps) {
+          const d = latticePoint(i + 1, j + 1);
+          triangles.push({ points: [b.point, d.point, c.point], cornerWeights: [b.weights, d.weights, c.weights] });
+        }
+      }
+    }
+  }
+
+  return triangles;
+}
+
+/** Which corner's weights best represent a fan triangle's flat fill: exact
+ * one-hot corners (touching a real polygon vertex) always win so vertex
+ * tiles stay pure, otherwise the 3 corners' weights are averaged. */
+export function fanTriangleFillWeights(cornerWeights: [number[], number[], number[]]): number[] {
+  const pureCorner = cornerWeights.find((w) => w.some((v) => v === 1));
+  if (pureCorner) return pureCorner;
+
+  const n = cornerWeights[0].length;
+  const avg = new Array(n).fill(0);
+  for (const w of cornerWeights) for (let i = 0; i < n; i++) avg[i] += w[i] / cornerWeights.length;
+  return avg;
+}
+
 export function pointInPolygon(p: Point, vertices: Point[]): boolean {
   let inside = false;
   const n = vertices.length;
