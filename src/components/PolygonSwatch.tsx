@@ -193,8 +193,46 @@ function colorAtPoint(
   const tileCenter: Point = { x: gridMin + tileSize * (col + 0.5), y: gridMin + tileSize * (row + 0.5) };
   if (!pointInPolygon(tileCenter, vertices)) return null;
 
-  const weights = meanValueCoordinates(tileCenter, vertices);
+  const pureCornerTiles = nearestTilePerVertex(steps, gridMin, tileSize, vertices);
+  const vertexIndex = pureCornerTiles.get(row * steps + col);
+  const weights = vertexIndex !== undefined ? oneHotWeights(latents.length, vertexIndex) : meanValueCoordinates(tileCenter, vertices);
   return applyPerceptualTint(latents, weights, tint, tintPure);
+}
+
+/** For each polygon vertex, finds the closest rendered tile (by center
+ * distance, among tiles whose center falls inside the polygon) - so that
+ * tile can be forced to the exact pigment color instead of its natural
+ * mean-value-coordinate blend. A tile's own MVC weight for its "home"
+ * vertex is usually well under 1 (nowhere near pure) since tile centers
+ * don't land exactly on a vertex, so without this no swatch ever shows a
+ * truly unmixed selected pigment. Keyed by `row * steps + col`. */
+function nearestTilePerVertex(steps: number, gridMin: number, tileSize: number, vertices: Point[]): Map<number, number> {
+  const nearestByVertex = new Map<number, { tileKey: number; distSq: number }>();
+
+  for (let row = 0; row < steps; row++) {
+    for (let col = 0; col < steps; col++) {
+      const cx = gridMin + tileSize * (col + 0.5);
+      const cy = gridMin + tileSize * (row + 0.5);
+      if (!pointInPolygon({ x: cx, y: cy }, vertices)) continue;
+
+      const tileKey = row * steps + col;
+      vertices.forEach((v, i) => {
+        const distSq = (cx - v.x) ** 2 + (cy - v.y) ** 2;
+        const current = nearestByVertex.get(i);
+        if (!current || distSq < current.distSq) nearestByVertex.set(i, { tileKey, distSq });
+      });
+    }
+  }
+
+  const tileToVertex = new Map<number, number>();
+  for (const [vertexIndex, { tileKey }] of nearestByVertex) tileToVertex.set(tileKey, vertexIndex);
+  return tileToVertex;
+}
+
+function oneHotWeights(n: number, index: number): number[] {
+  const weights = new Array(n).fill(0);
+  weights[index] = 1;
+  return weights;
 }
 
 function colorDistanceSq(a: { a: number; b: number }, b: { a: number; b: number }): number {
@@ -310,6 +348,7 @@ function renderPolygonSteps(
   const latents = colors.map(hexToLatent);
   const tileSize = gridSize / steps;
   const drawBorder = tileSize >= MIN_TILE_SIZE_FOR_BORDER;
+  const pureCornerTiles = nearestTilePerVertex(steps, gridMin, tileSize, vertices);
 
   let nearestCx = circleCenter.x;
   let nearestCy = circleCenter.y;
@@ -322,7 +361,9 @@ function renderPolygonSteps(
 
       if (!pointInPolygon({ x: cx, y: cy }, vertices)) continue;
 
-      const weights = meanValueCoordinates({ x: cx, y: cy }, vertices);
+      const vertexIndex = pureCornerTiles.get(row * steps + col);
+      const weights =
+        vertexIndex !== undefined ? oneHotWeights(latents.length, vertexIndex) : meanValueCoordinates({ x: cx, y: cy }, vertices);
       const rgb = applyPerceptualTint(latents, weights, tint, tintPure);
       const [r, g, b] = rgb;
       const tileX = gridMin + tileSize * col;
