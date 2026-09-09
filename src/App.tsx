@@ -188,6 +188,9 @@ function App() {
                   <button type="button" className={gridMode === "fan" ? "active" : ""} onClick={() => setGridMode("fan")}>
                     Fan
                   </button>
+                  <button type="button" className={gridMode === "dots" ? "active" : ""} onClick={() => setGridMode("dots")}>
+                    Dots
+                  </button>
                 </div>
               )}
             </div>

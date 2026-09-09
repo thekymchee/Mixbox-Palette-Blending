@@ -76,6 +76,62 @@ export interface FanTriangle {
   cornerWeights: [number[], number[], number[]];
 }
 
+export interface FanLatticePoint {
+  point: Point;
+  weights: number[];
+}
+
+interface FanWedge {
+  v1: Point;
+  v2: Point;
+  w1: number[];
+  w2: number[];
+}
+
+/** Fan-triangulates the n-gon into n wedges from its centroid - the shared
+ * setup behind both fanTriangleMesh (a filled mosaic) and fanLatticePoints
+ * (discrete markers, à la a ternary plot's scatter of dots). */
+function fanWedges(vertices: Point[]): { centroid: Point; centroidWeights: number[]; wedges: FanWedge[] } {
+  const n = vertices.length;
+  const centroid: Point = {
+    x: vertices.reduce((sum, v) => sum + v.x, 0) / n,
+    y: vertices.reduce((sum, v) => sum + v.y, 0) / n,
+  };
+  const centroidWeights = new Array(n).fill(1 / n);
+  const wedges: FanWedge[] = vertices.map((v1, i) => ({
+    v1,
+    v2: vertices[(i + 1) % n],
+    w1: oneHotWeights(n, i),
+    w2: oneHotWeights(n, (i + 1) % n),
+  }));
+  return { centroid, centroidWeights, wedges };
+}
+
+/** A point at barycentric position (i, j, steps-i-j) within one wedge
+ * (centroid, wedge.v1, wedge.v2) - exact at the wedge's own vertices (i=steps
+ * or j=steps), which is what guarantees polygon vertices land on exact
+ * lattice points instead of the near-miss a Cartesian pixel/tile grid gives. */
+function wedgeLatticePoint(
+  wedge: FanWedge,
+  centroid: Point,
+  centroidWeights: number[],
+  i: number,
+  j: number,
+  steps: number,
+): FanLatticePoint {
+  const k = steps - i - j;
+  const fi = i / steps;
+  const fj = j / steps;
+  const fk = k / steps;
+  return {
+    point: {
+      x: centroid.x * fk + wedge.v1.x * fi + wedge.v2.x * fj,
+      y: centroid.y * fk + wedge.v1.y * fi + wedge.v2.y * fj,
+    },
+    weights: centroidWeights.map((cw, idx) => cw * fk + wedge.w1[idx] * fi + wedge.w2[idx] * fj),
+  };
+}
+
 /** Generalizes a ternary plot's "build the grid in weight-space" trick
  * (exact at n=3 since a triangle already is a 2-simplex) to any n: fan-
  * triangulates the n-gon into n wedges from its centroid, then subdivides
@@ -87,33 +143,11 @@ export interface FanTriangle {
  * unlike sampling a Cartesian pixel/tile grid and converting to weights
  * after the fact, which almost never lands exactly on a vertex. */
 export function fanTriangleMesh(vertices: Point[], steps: number): FanTriangle[] {
-  const n = vertices.length;
-  const centroid: Point = {
-    x: vertices.reduce((sum, v) => sum + v.x, 0) / n,
-    y: vertices.reduce((sum, v) => sum + v.y, 0) / n,
-  };
-  const centroidWeights = new Array(n).fill(1 / n);
+  const { centroid, centroidWeights, wedges } = fanWedges(vertices);
   const triangles: FanTriangle[] = [];
 
-  for (let e = 0; e < n; e++) {
-    const v1 = vertices[e];
-    const v2 = vertices[(e + 1) % n];
-    const w1 = oneHotWeights(n, e);
-    const w2 = oneHotWeights(n, (e + 1) % n);
-
-    const latticePoint = (i: number, j: number): { point: Point; weights: number[] } => {
-      const k = steps - i - j;
-      const fi = i / steps;
-      const fj = j / steps;
-      const fk = k / steps;
-      return {
-        point: {
-          x: centroid.x * fk + v1.x * fi + v2.x * fj,
-          y: centroid.y * fk + v1.y * fi + v2.y * fj,
-        },
-        weights: centroidWeights.map((cw, idx) => cw * fk + w1[idx] * fi + w2[idx] * fj),
-      };
-    };
+  for (const wedge of wedges) {
+    const latticePoint = (i: number, j: number) => wedgeLatticePoint(wedge, centroid, centroidWeights, i, j, steps);
 
     for (let i = 0; i < steps; i++) {
       for (let j = 0; j < steps - i; j++) {
@@ -131,6 +165,27 @@ export function fanTriangleMesh(vertices: Point[], steps: number): FanTriangle[]
   }
 
   return triangles;
+}
+
+/** Just the fan lattice's points (no triangulated faces) - for plotting each
+ * one as a small fixed-size marker, the way a ternary plot places a dot at
+ * every weight-space grid point rather than filling the plane between them.
+ * Shared points between adjacent wedges (the centroid, and each spoke from
+ * it to a vertex) are produced once per wedge; since duplicates carry the
+ * same weights, drawing them twice is harmless. */
+export function fanLatticePoints(vertices: Point[], steps: number): FanLatticePoint[] {
+  const { centroid, centroidWeights, wedges } = fanWedges(vertices);
+  const points: FanLatticePoint[] = [];
+
+  for (const wedge of wedges) {
+    for (let i = 0; i <= steps; i++) {
+      for (let j = 0; j <= steps - i; j++) {
+        points.push(wedgeLatticePoint(wedge, centroid, centroidWeights, i, j, steps));
+      }
+    }
+  }
+
+  return points;
 }
 
 /** Which corner's weights best represent a fan triangle's flat fill: exact

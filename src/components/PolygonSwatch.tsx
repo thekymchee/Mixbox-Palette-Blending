@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
+  fanLatticePoints,
   fanTriangleFillWeights,
   fanTriangleMesh,
   meanValueCoordinates,
@@ -12,7 +13,7 @@ import { hexToLatent, rgbToHex, type RgbTuple } from "../lib/mix";
 import { rgbToOklabAB, rgbToOklch } from "../lib/color";
 import { applyPerceptualTint, convergedExtreme, tintRangeForColors } from "../lib/tint";
 
-export type GridMode = "squares" | "fan";
+export type GridMode = "squares" | "fan" | "dots";
 
 interface PolygonSwatchProps {
   colors: string[];
@@ -22,8 +23,11 @@ interface PolygonSwatchProps {
   /** "squares" clips a Cartesian tile grid to the polygon, then snaps only
    * the tile nearest each vertex to a pure color. "fan" builds the grid
    * directly in weight-space (see fanTriangleMesh) so every vertex is an
-   * exact lattice point with no snapping needed. Ignored for the 2-color
-   * line case, which is already exact at both ends. */
+   * exact lattice point with no snapping needed. "dots" plots that same
+   * weight-space lattice (see fanLatticePoints) as small fixed-size hexagon
+   * markers instead of a filled mosaic - a discrete scatter, the way a
+   * ternary plot's "hexagon" is a dot-marker shape, not a tessellation.
+   * Ignored for the 2-color line case, which is already exact at both ends. */
   gridMode: GridMode;
   /** The OKLab plane's geometric-center point (plain average of the
    * selected colors' OKLab a/b - the same point regardless of which wheel
@@ -48,9 +52,10 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB, gridMode }:
   const [hover, setHover] = useState<HoverState | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const tintPure = useMemo(() => tintRangeForColors(colors).pure, [colors]);
-  // Populated by renderFanSteps so hover hit-testing can reuse the exact
-  // triangles/colors just drawn, instead of recomputing fan geometry.
+  // Populated by renderFanSteps/renderDotsSteps so hover hit-testing can
+  // reuse the exact geometry/colors just drawn, instead of recomputing it.
   const fanMeshRef = useRef<{ points: [Point, Point, Point]; rgb: RgbTuple }[]>([]);
+  const dotsRef = useRef<{ x: number; y: number; radius: number; rgb: RgbTuple }[]>([]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -73,6 +78,11 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB, gridMode }:
       return;
     }
 
+    if (gridMode === "dots") {
+      dotsRef.current = renderDotsSteps(ctx, colors, steps, tint, tintPure, size, targetAB);
+      return;
+    }
+
     renderPolygonSteps(ctx, colors, steps, tint, tintPure, size, targetAB);
   }, [colors, steps, tint, tintPure, size, targetAB, gridMode]);
 
@@ -81,11 +91,13 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB, gridMode }:
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const rgb =
-      colors.length >= 3 && gridMode === "fan"
-        ? colorAtPointFan(fanMeshRef.current, x, y)
-        : colors.length >= 2
-          ? colorAtPoint(colors, steps, tint, tintPure, size, x, y)
-          : null;
+      colors.length < 2
+        ? null
+        : colors.length >= 3 && gridMode === "fan"
+          ? colorAtPointFan(fanMeshRef.current, x, y)
+          : colors.length >= 3 && gridMode === "dots"
+            ? colorAtPointDots(dotsRef.current, x, y)
+            : colorAtPoint(colors, steps, tint, tintPure, size, x, y);
     setHover(rgb ? { x, y, hex: rgbToHex(rgb), oklch: rgbToOklch(rgb) } : null);
   };
 
@@ -276,6 +288,20 @@ function colorAtPointFan(mesh: { points: [Point, Point, Point]; rgb: RgbTuple }[
     if (pointInTriangle(p, tri.points)) return tri.rgb;
   }
   return null;
+}
+
+/** Looks up the color of whichever dot marker (x, y) falls within, reusing
+ * the markers renderDotsSteps just drew. Returns null in the gaps between
+ * markers, same as hovering empty space on a real scatter plot. */
+function colorAtPointDots(dots: { x: number; y: number; radius: number; rgb: RgbTuple }[], x: number, y: number): RgbTuple | null {
+  let nearest: { rgb: RgbTuple; distSq: number } | null = null;
+  for (const dot of dots) {
+    const distSq = (x - dot.x) ** 2 + (y - dot.y) ** 2;
+    if (distSq <= (dot.radius * 1.6) ** 2 && (!nearest || distSq < nearest.distSq)) {
+      nearest = { rgb: dot.rgb, distSq };
+    }
+  }
+  return nearest?.rgb ?? null;
 }
 
 function colorDistanceSq(a: { a: number; b: number }, b: { a: number; b: number }): number {
@@ -496,4 +522,58 @@ function renderFanSteps(
 
   drawPlus(ctx, nearestCx, nearestCy, Math.max((size / steps) * 0.22, 4));
   return mesh;
+}
+
+// A fixed marker size, independent of `steps` - the same way a scatter
+// plot's marker size doesn't shrink as more points are added. Raising
+// `steps` here means "more, denser dots", not "smaller dots".
+const DOT_MARKER_RADIUS_FRACTION = 0.016;
+
+/** Fan lattice rendered as discrete hexagon markers rather than a filled
+ * mosaic (see fanLatticePoints) - a scatter plot of pigment-mix dots the way
+ * a ternary plot's "hexagon" is a marker shape, not a tessellation. Gaps
+ * between markers show the panel background, same as an real scatter plot. */
+function renderDotsSteps(
+  ctx: CanvasRenderingContext2D,
+  colors: string[],
+  steps: number,
+  tint: number,
+  tintPure: number,
+  size: number,
+  targetAB: { a: number; b: number } | null,
+): { x: number; y: number; radius: number; rgb: RgbTuple }[] {
+  const { vertices, circleCenter } = polygonGeometry(colors.length, size);
+  const latents = colors.map(hexToLatent);
+  const lattice = fanLatticePoints(vertices, steps);
+  const radius = Math.max(2, size * DOT_MARKER_RADIUS_FRACTION);
+
+  const dots: { x: number; y: number; radius: number; rgb: RgbTuple }[] = [];
+  let nearestCx = circleCenter.x;
+  let nearestCy = circleCenter.y;
+  let nearestDist = Infinity;
+
+  for (const { point, weights } of lattice) {
+    const rgb = applyPerceptualTint(latents, weights, tint, tintPure);
+    dots.push({ x: point.x, y: point.y, radius, rgb });
+
+    const [r, g, b] = rgb;
+    const marker = regularPolygonVertices(6, point.x, point.y, radius);
+    ctx.beginPath();
+    marker.forEach((v, i) => (i === 0 ? ctx.moveTo(v.x, v.y) : ctx.lineTo(v.x, v.y)));
+    ctx.closePath();
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    ctx.fill();
+
+    const dist = targetAB
+      ? colorDistanceSq(rgbToOklabAB(rgb), targetAB)
+      : Math.hypot(point.x - circleCenter.x, point.y - circleCenter.y);
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearestCx = point.x;
+      nearestCy = point.y;
+    }
+  }
+
+  drawPlus(ctx, nearestCx, nearestCy, radius * 1.4);
+  return dots;
 }
