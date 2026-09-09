@@ -191,6 +191,13 @@ function App() {
                   <button type="button" className={gridMode === "dots" ? "active" : ""} onClick={() => setGridMode("dots")}>
                     Dots
                   </button>
+                  <button
+                    type="button"
+                    className={gridMode === "voronoi" ? "active" : ""}
+                    onClick={() => setGridMode("voronoi")}
+                  >
+                    Voronoi
+                  </button>
                 </div>
               )}
             </div>

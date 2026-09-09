@@ -3,6 +3,7 @@ import {
   fanLatticePoints,
   fanTriangleFillWeights,
   fanTriangleMesh,
+  fanVoronoiCells,
   meanValueCoordinates,
   oneHotWeights,
   pointInPolygon,
@@ -13,7 +14,7 @@ import { hexToLatent, rgbToHex, type RgbTuple } from "../lib/mix";
 import { rgbToOklabAB, rgbToOklch } from "../lib/color";
 import { applyPerceptualTint, convergedExtreme, tintRangeForColors } from "../lib/tint";
 
-export type GridMode = "squares" | "fan" | "dots";
+export type GridMode = "squares" | "fan" | "dots" | "voronoi";
 
 interface PolygonSwatchProps {
   colors: string[];
@@ -28,7 +29,10 @@ interface PolygonSwatchProps {
    * tile edge-to-edge - a honeycomb, not a filled triangle mosaic - so each
    * hexagon shrinks as `steps` rises to keep fitting the fixed-size canvas
    * without gaps or overlap. Ignored for the 2-color line case, which is
-   * already exact at both ends. */
+   * already exact at both ends. "voronoi" computes each lattice point's
+   * exact nearest-neighbor cell (see fanVoronoiCells) - a gap-free tiling
+   * for any n, including n=5 where no regular marker shape can tile
+   * perfectly. */
   gridMode: GridMode;
   /** The OKLab plane's geometric-center point (plain average of the
    * selected colors' OKLab a/b - the same point regardless of which wheel
@@ -57,6 +61,7 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB, gridMode }:
   // reuse the exact geometry/colors just drawn, instead of recomputing it.
   const fanMeshRef = useRef<{ points: [Point, Point, Point]; rgb: RgbTuple }[]>([]);
   const dotsRef = useRef<{ x: number; y: number; radius: number; rgb: RgbTuple }[]>([]);
+  const voronoiRef = useRef<{ points: Point[]; rgb: RgbTuple }[]>([]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -84,6 +89,11 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB, gridMode }:
       return;
     }
 
+    if (gridMode === "voronoi") {
+      voronoiRef.current = renderVoronoiSteps(ctx, colors, steps, tint, tintPure, size, targetAB);
+      return;
+    }
+
     renderPolygonSteps(ctx, colors, steps, tint, tintPure, size, targetAB);
   }, [colors, steps, tint, tintPure, size, targetAB, gridMode]);
 
@@ -98,7 +108,9 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB, gridMode }:
           ? colorAtPointFan(fanMeshRef.current, x, y)
           : colors.length >= 3 && gridMode === "dots"
             ? colorAtPointDots(dotsRef.current, x, y)
-            : colorAtPoint(colors, steps, tint, tintPure, size, x, y);
+            : colors.length >= 3 && gridMode === "voronoi"
+              ? colorAtPointVoronoi(voronoiRef.current, x, y)
+              : colorAtPoint(colors, steps, tint, tintPure, size, x, y);
     setHover(rgb ? { x, y, hex: rgbToHex(rgb), oklch: rgbToOklch(rgb) } : null);
   };
 
@@ -303,6 +315,17 @@ function colorAtPointDots(dots: { x: number; y: number; radius: number; rgb: Rgb
     }
   }
   return nearest?.rgb ?? null;
+}
+
+/** Looks up the color of whichever Voronoi cell contains (x, y), reusing
+ * the cells renderVoronoiSteps just drew. Since the cells exactly partition
+ * the polygon (see fanVoronoiCells), unlike Dots there's no gap to miss. */
+function colorAtPointVoronoi(cells: { points: Point[]; rgb: RgbTuple }[], x: number, y: number): RgbTuple | null {
+  const p: Point = { x, y };
+  for (const cell of cells) {
+    if (pointInPolygon(p, cell.points)) return cell.rgb;
+  }
+  return null;
 }
 
 function colorDistanceSq(a: { a: number; b: number }, b: { a: number; b: number }): number {
@@ -606,4 +629,61 @@ function renderDotsSteps(
 
   drawPlus(ctx, nearestCx, nearestCy, Math.max(radius * 1.4, 4));
   return dots;
+}
+
+/** Exact Voronoi tiling of the fan lattice (see fanVoronoiCells) - each cell
+ * is computed from its own real neighbors rather than assumed to be a fixed
+ * regular shape, so it tiles gap-free for any n, including n=5 where no
+ * regular marker (hexagon, square, ...) can. */
+function renderVoronoiSteps(
+  ctx: CanvasRenderingContext2D,
+  colors: string[],
+  steps: number,
+  tint: number,
+  tintPure: number,
+  size: number,
+  targetAB: { a: number; b: number } | null,
+): { points: Point[]; rgb: RgbTuple }[] {
+  const { vertices, circleCenter } = polygonGeometry(colors.length, size);
+  const latents = colors.map(hexToLatent);
+  const voronoiCells = fanVoronoiCells(vertices, steps);
+  const drawBorder = size / steps >= MIN_TILE_SIZE_FOR_BORDER;
+
+  const cells: { points: Point[]; rgb: RgbTuple }[] = [];
+  let nearestCx = circleCenter.x;
+  let nearestCy = circleCenter.y;
+  let nearestDist = Infinity;
+
+  for (const { points, weights } of voronoiCells) {
+    const rgb = applyPerceptualTint(latents, weights, tint, tintPure);
+    cells.push({ points, rgb });
+
+    const [r, g, b] = rgb;
+    ctx.beginPath();
+    points.forEach((v, i) => (i === 0 ? ctx.moveTo(v.x, v.y) : ctx.lineTo(v.x, v.y)));
+    ctx.closePath();
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    ctx.fill();
+    if (drawBorder) {
+      ctx.strokeStyle = GRID_LINE_STYLE;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    const cx = points.reduce((sum, v) => sum + v.x, 0) / points.length;
+    const cy = points.reduce((sum, v) => sum + v.y, 0) / points.length;
+    if (convergedExtreme(rgb)) {
+      drawConvergedDot(ctx, cx, cy, Math.max((size / steps) * 0.1, 2));
+    }
+
+    const dist = targetAB ? colorDistanceSq(rgbToOklabAB(rgb), targetAB) : Math.hypot(cx - circleCenter.x, cy - circleCenter.y);
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearestCx = cx;
+      nearestCy = cy;
+    }
+  }
+
+  drawPlus(ctx, nearestCx, nearestCy, Math.max((size / steps) * 0.22, 4));
+  return cells;
 }
