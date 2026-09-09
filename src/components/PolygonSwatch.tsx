@@ -24,10 +24,11 @@ interface PolygonSwatchProps {
    * the tile nearest each vertex to a pure color. "fan" builds the grid
    * directly in weight-space (see fanTriangleMesh) so every vertex is an
    * exact lattice point with no snapping needed. "dots" plots that same
-   * weight-space lattice (see fanLatticePoints) as small fixed-size hexagon
-   * markers instead of a filled mosaic - a discrete scatter, the way a
-   * ternary plot's "hexagon" is a dot-marker shape, not a tessellation.
-   * Ignored for the 2-color line case, which is already exact at both ends. */
+   * weight-space lattice (see fanLatticePoints) as hexagon markers sized to
+   * tile edge-to-edge - a honeycomb, not a filled triangle mosaic - so each
+   * hexagon shrinks as `steps` rises to keep fitting the fixed-size canvas
+   * without gaps or overlap. Ignored for the 2-color line case, which is
+   * already exact at both ends. */
   gridMode: GridMode;
   /** The OKLab plane's geometric-center point (plain average of the
    * selected colors' OKLab a/b - the same point regardless of which wheel
@@ -524,15 +525,17 @@ function renderFanSteps(
   return mesh;
 }
 
-// A fixed marker size, independent of `steps` - the same way a scatter
-// plot's marker size doesn't shrink as more points are added. Raising
-// `steps` here means "more, denser dots", not "smaller dots".
-const DOT_MARKER_RADIUS_FRACTION = 0.016;
-
-/** Fan lattice rendered as discrete hexagon markers rather than a filled
- * mosaic (see fanLatticePoints) - a scatter plot of pigment-mix dots the way
- * a ternary plot's "hexagon" is a marker shape, not a tessellation. Gaps
- * between markers show the panel background, same as an real scatter plot. */
+/** Fan lattice rendered as discrete hexagon markers that tile edge-to-edge
+ * (see fanLatticePoints) - the way a real hex-grid honeycomb tessellates,
+ * rather than a filled triangle mosaic. Adjacent lattice points along the
+ * two centroid-to-vertex directions are always exactly `circumradius/steps`
+ * apart (equal by construction for a regular polygon), and centers that far
+ * apart tile without gaps or overlap when each hexagon's own circumradius
+ * is that spacing divided by sqrt(3) - the same fixed relationship the
+ * Observable notebook's own marker-size formula (r = w/(n+1)/2, for a fixed
+ * plot width w) uses: the canvas stays the fixed swatch size every other
+ * grid mode uses, and it's each hexagon that shrinks as `steps` rises,
+ * fitting progressively more (never overlapping) tiles into it. */
 function renderDotsSteps(
   ctx: CanvasRenderingContext2D,
   colors: string[],
@@ -545,7 +548,10 @@ function renderDotsSteps(
   const { vertices, circleCenter } = polygonGeometry(colors.length, size);
   const latents = colors.map(hexToLatent);
   const lattice = fanLatticePoints(vertices, steps);
-  const radius = Math.max(2, size * DOT_MARKER_RADIUS_FRACTION);
+  const circumradius = Math.hypot(vertices[0].x - circleCenter.x, vertices[0].y - circleCenter.y);
+  // A hair under the exact touching radius so antialiasing never shows a
+  // 1px overlap seam between neighboring hexagons.
+  const radius = Math.max(1.5, (circumradius / steps / Math.sqrt(3)) * 0.98);
 
   const dots: { x: number; y: number; radius: number; rgb: RgbTuple }[] = [];
   let nearestCx = circleCenter.x;
@@ -574,6 +580,6 @@ function renderDotsSteps(
     }
   }
 
-  drawPlus(ctx, nearestCx, nearestCy, radius * 1.4);
+  drawPlus(ctx, nearestCx, nearestCy, Math.max(radius * 1.4, 4));
   return dots;
 }
