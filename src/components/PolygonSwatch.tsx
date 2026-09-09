@@ -4,6 +4,7 @@ import {
   hexGridGeometry,
   meanValueCoordinates,
   nearestHexCell,
+  pointInPolygon,
   regularPolygonVertices,
   type Point,
 } from "../lib/polygon";
@@ -194,6 +195,7 @@ function colorAtPoint(
   const { vertices, gridSize, gridMin } = polygonGeometry(colors.length, size);
   const geo = hexGridGeometry(gridSize, gridMin, steps);
   const { center } = nearestHexCell(geo, { x, y });
+  if (!pointInPolygon(center, vertices)) return null;
 
   const weights = meanValueCoordinates(center, vertices);
   return applyPerceptualTint(latents, weights, tint, tintPure);
@@ -302,10 +304,11 @@ function renderLineSteps(
   drawPlus(ctx, nearestCx, nearestCy, Math.min(cellWidth, height) * 0.22);
 }
 
-/** A honeycomb of pointy-top hexagons filling the whole bounding square -
- * unmasked, not clipped to the polygon's own outline, since mean value
- * coordinates extend smoothly past a polygon's edge just as validly as
- * inside it. Every cell in the grid is drawn as a complete hexagon. */
+/** A honeycomb of full, unmasked pointy-top hexagons: a cell is included
+ * whenever its center falls inside the polygon, but is always drawn as a
+ * complete hexagon - border cells are shown in full rather than clipped to
+ * a sliver, giving a scalloped (not smooth) approximation of the polygon
+ * at low step counts, the same tradeoff the square grid made. */
 function renderPolygonSteps(
   ctx: CanvasRenderingContext2D,
   colors: string[],
@@ -327,6 +330,7 @@ function renderPolygonSteps(
   for (let row = 0; row < geo.numRows; row++) {
     for (let col = 0; col < geo.numCols; col++) {
       const { x: cx, y: cy } = hexCellCenter(geo, row, col);
+      if (!pointInPolygon({ x: cx, y: cy }, vertices)) continue;
 
       const weights = meanValueCoordinates({ x: cx, y: cy }, vertices);
       const rgb = applyPerceptualTint(latents, weights, tint, tintPure);
