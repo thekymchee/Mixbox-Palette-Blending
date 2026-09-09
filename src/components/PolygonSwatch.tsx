@@ -525,6 +525,26 @@ function renderFanSteps(
   return mesh;
 }
 
+// Rotated 30° from regularPolygonVertices' own "vertex-up" convention, so
+// the marker's EDGES (not its vertices) face its neighbors. The fan
+// lattice's neighbor directions run from the centroid straight toward each
+// polygon vertex - the same directions regularPolygonVertices places those
+// vertices at (its own start angle, -90°). A honeycomb only tiles when a
+// hexagon's edge (not a corner) meets the neighbor head-on, so lining a
+// marker's vertex up with that same -90° direction (as a plain
+// regularPolygonVertices(6, ...) call does) leaves it rotated exactly 30°
+// off in every direction - each hexagon touches its neighbor at one corner
+// while gapping at the opposite one, however precisely the radius is sized.
+function hexMarkerVertices(cx: number, cy: number, r: number): Point[] {
+  const vertices: Point[] = [];
+  const start = -Math.PI / 2 - Math.PI / 6;
+  for (let i = 0; i < 6; i++) {
+    const angle = start + (i * Math.PI) / 3;
+    vertices.push({ x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) });
+  }
+  return vertices;
+}
+
 /** Fan lattice rendered as discrete hexagon markers that tile edge-to-edge
  * (see fanLatticePoints) - the way a real hex-grid honeycomb tessellates,
  * rather than a filled triangle mosaic. Adjacent lattice points along the
@@ -535,7 +555,11 @@ function renderFanSteps(
  * Observable notebook's own marker-size formula (r = w/(n+1)/2, for a fixed
  * plot width w) uses: the canvas stays the fixed swatch size every other
  * grid mode uses, and it's each hexagon that shrinks as `steps` rises,
- * fitting progressively more (never overlapping) tiles into it. */
+ * fitting progressively more (never overlapping) tiles into it. This tiles
+ * exactly for n=3 and n=6 (the polygon's own vertex spacing, 120° and 60°,
+ * is itself a multiple of the hexagon's 60° symmetry); n=4 and n=5 can't
+ * tile perfectly either way (their vertex spacing isn't a multiple of 60°)
+ * but hexMarkerVertices' alignment still measurably reduces the gaps. */
 function renderDotsSteps(
   ctx: CanvasRenderingContext2D,
   colors: string[],
@@ -563,7 +587,7 @@ function renderDotsSteps(
     dots.push({ x: point.x, y: point.y, radius, rgb });
 
     const [r, g, b] = rgb;
-    const marker = regularPolygonVertices(6, point.x, point.y, radius);
+    const marker = hexMarkerVertices(point.x, point.y, radius);
     ctx.beginPath();
     marker.forEach((v, i) => (i === 0 ? ctx.moveTo(v.x, v.y) : ctx.lineTo(v.x, v.y)));
     ctx.closePath();
