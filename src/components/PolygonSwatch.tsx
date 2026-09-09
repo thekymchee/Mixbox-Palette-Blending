@@ -1,13 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import {
-  hexCellCenter,
-  hexGridGeometry,
-  meanValueCoordinates,
-  nearestHexCell,
-  pointInPolygon,
-  regularPolygonVertices,
-  type Point,
-} from "../lib/polygon";
+import { meanValueCoordinates, pointInPolygon, regularPolygonVertices, type Point } from "../lib/polygon";
 import { hexToLatent, rgbToHex, type RgbTuple } from "../lib/mix";
 import { rgbToOklabAB, rgbToOklch } from "../lib/color";
 import { applyPerceptualTint, convergedExtreme, tintRangeForColors } from "../lib/tint";
@@ -193,12 +185,54 @@ function colorAtPoint(
   }
 
   const { vertices, gridSize, gridMin } = polygonGeometry(colors.length, size);
-  const geo = hexGridGeometry(gridSize, gridMin, steps);
-  const { center } = nearestHexCell(geo, { x, y });
-  if (!pointInPolygon(center, vertices)) return null;
+  const tileSize = gridSize / steps;
+  const col = Math.floor((x - gridMin) / tileSize);
+  const row = Math.floor((y - gridMin) / tileSize);
+  if (col < 0 || col >= steps || row < 0 || row >= steps) return null;
 
-  const weights = meanValueCoordinates(center, vertices);
+  const tileCenter: Point = { x: gridMin + tileSize * (col + 0.5), y: gridMin + tileSize * (row + 0.5) };
+  if (!pointInPolygon(tileCenter, vertices)) return null;
+
+  const pureCornerTiles = nearestTilePerVertex(steps, gridMin, tileSize, vertices);
+  const vertexIndex = pureCornerTiles.get(row * steps + col);
+  const weights = vertexIndex !== undefined ? oneHotWeights(latents.length, vertexIndex) : meanValueCoordinates(tileCenter, vertices);
   return applyPerceptualTint(latents, weights, tint, tintPure);
+}
+
+/** For each polygon vertex, finds the closest rendered tile (by center
+ * distance, among tiles whose center falls inside the polygon) - so that
+ * tile can be forced to the exact pigment color instead of its natural
+ * mean-value-coordinate blend. A tile's own MVC weight for its "home"
+ * vertex is usually well under 1 (nowhere near pure) since tile centers
+ * don't land exactly on a vertex, so without this no swatch ever shows a
+ * truly unmixed selected pigment. Keyed by `row * steps + col`. */
+function nearestTilePerVertex(steps: number, gridMin: number, tileSize: number, vertices: Point[]): Map<number, number> {
+  const nearestByVertex = new Map<number, { tileKey: number; distSq: number }>();
+
+  for (let row = 0; row < steps; row++) {
+    for (let col = 0; col < steps; col++) {
+      const cx = gridMin + tileSize * (col + 0.5);
+      const cy = gridMin + tileSize * (row + 0.5);
+      if (!pointInPolygon({ x: cx, y: cy }, vertices)) continue;
+
+      const tileKey = row * steps + col;
+      vertices.forEach((v, i) => {
+        const distSq = (cx - v.x) ** 2 + (cy - v.y) ** 2;
+        const current = nearestByVertex.get(i);
+        if (!current || distSq < current.distSq) nearestByVertex.set(i, { tileKey, distSq });
+      });
+    }
+  }
+
+  const tileToVertex = new Map<number, number>();
+  for (const [vertexIndex, { tileKey }] of nearestByVertex) tileToVertex.set(tileKey, vertexIndex);
+  return tileToVertex;
+}
+
+function oneHotWeights(n: number, index: number): number[] {
+  const weights = new Array(n).fill(0);
+  weights[index] = 1;
+  return weights;
 }
 
 function colorDistanceSq(a: { a: number; b: number }, b: { a: number; b: number }): number {
@@ -246,14 +280,6 @@ function drawConvergedDot(ctx: CanvasRenderingContext2D, cx: number, cy: number,
   ctx.fillStyle = "#1a1a1a";
   ctx.fill();
   ctx.restore();
-}
-
-function drawHexPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number) {
-  const pts = regularPolygonVertices(6, cx, cy, radius);
-  ctx.beginPath();
-  ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-  ctx.closePath();
 }
 
 function renderLineSteps(
@@ -304,11 +330,11 @@ function renderLineSteps(
   drawPlus(ctx, nearestCx, nearestCy, Math.min(cellWidth, height) * 0.22);
 }
 
-/** A honeycomb of full, unmasked pointy-top hexagons: a cell is included
- * whenever its center falls inside the polygon, but is always drawn as a
- * complete hexagon - border cells are shown in full rather than clipped to
- * a sliver, giving a scalloped (not smooth) approximation of the polygon
- * at low step counts, the same tradeoff the square grid made. */
+/** Full, unmasked square tiles: a tile is included whenever its center
+ * falls inside the polygon, but is always drawn as a complete square -
+ * border tiles are shown in full rather than clipped to a sliver, giving
+ * a blocky (not smooth-edged) approximation of the polygon at low step
+ * counts. */
 function renderPolygonSteps(
   ctx: CanvasRenderingContext2D,
   colors: string[],
@@ -320,33 +346,38 @@ function renderPolygonSteps(
 ) {
   const { vertices, circleCenter, gridSize, gridMin } = polygonGeometry(colors.length, size);
   const latents = colors.map(hexToLatent);
-  const geo = hexGridGeometry(gridSize, gridMin, steps);
-  const drawBorder = geo.colWidth >= MIN_TILE_SIZE_FOR_BORDER;
+  const tileSize = gridSize / steps;
+  const drawBorder = tileSize >= MIN_TILE_SIZE_FOR_BORDER;
+  const pureCornerTiles = nearestTilePerVertex(steps, gridMin, tileSize, vertices);
 
   let nearestCx = circleCenter.x;
   let nearestCy = circleCenter.y;
   let nearestDist = Infinity;
 
-  for (let row = 0; row < geo.numRows; row++) {
-    for (let col = 0; col < geo.numCols; col++) {
-      const { x: cx, y: cy } = hexCellCenter(geo, row, col);
+  for (let row = 0; row < steps; row++) {
+    for (let col = 0; col < steps; col++) {
+      const cx = gridMin + tileSize * (col + 0.5);
+      const cy = gridMin + tileSize * (row + 0.5);
+
       if (!pointInPolygon({ x: cx, y: cy }, vertices)) continue;
 
-      const weights = meanValueCoordinates({ x: cx, y: cy }, vertices);
+      const vertexIndex = pureCornerTiles.get(row * steps + col);
+      const weights =
+        vertexIndex !== undefined ? oneHotWeights(latents.length, vertexIndex) : meanValueCoordinates({ x: cx, y: cy }, vertices);
       const rgb = applyPerceptualTint(latents, weights, tint, tintPure);
       const [r, g, b] = rgb;
+      const tileX = gridMin + tileSize * col;
+      const tileY = gridMin + tileSize * row;
       ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-      drawHexPath(ctx, cx, cy, geo.radius + 0.75);
-      ctx.fill();
+      ctx.fillRect(tileX, tileY, tileSize + 0.5, tileSize + 0.5);
       if (drawBorder) {
         ctx.strokeStyle = GRID_LINE_STYLE;
         ctx.lineWidth = 1;
-        drawHexPath(ctx, cx, cy, geo.radius);
-        ctx.stroke();
+        ctx.strokeRect(tileX, tileY, tileSize, tileSize);
       }
 
       if (convergedExtreme(rgb)) {
-        drawConvergedDot(ctx, cx, cy, Math.max(geo.radius * 0.2, 2));
+        drawConvergedDot(ctx, cx, cy, Math.max(tileSize * 0.1, 2));
       }
 
       const dist = targetAB
@@ -360,5 +391,5 @@ function renderPolygonSteps(
     }
   }
 
-  drawPlus(ctx, nearestCx, nearestCy, Math.max(geo.radius * 0.45, 4));
+  drawPlus(ctx, nearestCx, nearestCy, Math.max(tileSize * 0.22, 4));
 }
