@@ -3,7 +3,6 @@ import {
   fanLatticePoints,
   fanTriangleFillWeights,
   fanTriangleMesh,
-  fanVoronoiCells,
   meanValueCoordinates,
   oneHotWeights,
   pointInPolygon,
@@ -14,7 +13,7 @@ import { hexToLatent, rgbToHex, type RgbTuple } from "../lib/mix";
 import { rgbToOklabAB, rgbToOklch } from "../lib/color";
 import { applyPerceptualTint, convergedExtreme, tintRangeForColors } from "../lib/tint";
 
-export type GridMode = "squares" | "fan" | "dots" | "voronoi";
+export type GridMode = "squares" | "fan" | "dots";
 
 interface PolygonSwatchProps {
   colors: string[];
@@ -25,14 +24,13 @@ interface PolygonSwatchProps {
    * the tile nearest each vertex to a pure color. "fan" builds the grid
    * directly in weight-space (see fanTriangleMesh) so every vertex is an
    * exact lattice point with no snapping needed. "dots" plots that same
-   * weight-space lattice (see fanLatticePoints) as hexagon markers sized to
-   * tile edge-to-edge - a honeycomb, not a filled triangle mosaic - so each
-   * hexagon shrinks as `steps` rises to keep fitting the fixed-size canvas
-   * without gaps or overlap. Ignored for the 2-color line case, which is
-   * already exact at both ends. "voronoi" computes each lattice point's
-   * exact nearest-neighbor cell (see fanVoronoiCells) - a gap-free tiling
-   * for any n, including n=5 where no regular marker shape can tile
-   * perfectly. */
+   * weight-space lattice (see fanLatticePoints) as discrete markers - hexagons
+   * for a 3- or 6-color palette, squares for 4 or 5 - sized to tile
+   * edge-to-edge - a honeycomb or checkerboard, not a filled triangle mosaic -
+   * so each marker shrinks as `steps` rises to keep fitting the fixed-size
+   * canvas without gaps or overlap. Perfect for n=3/4/6; n=5 has no regular
+   * marker shape that tiles without small gaps (see squareMarkerVertices).
+   * Ignored for the 2-color line case, which is already exact at both ends. */
   gridMode: GridMode;
   /** The OKLab plane's geometric-center point (plain average of the
    * selected colors' OKLab a/b - the same point regardless of which wheel
@@ -61,7 +59,6 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB, gridMode }:
   // reuse the exact geometry/colors just drawn, instead of recomputing it.
   const fanMeshRef = useRef<{ points: [Point, Point, Point]; rgb: RgbTuple }[]>([]);
   const dotsRef = useRef<{ x: number; y: number; radius: number; rgb: RgbTuple }[]>([]);
-  const voronoiRef = useRef<{ points: Point[]; rgb: RgbTuple }[]>([]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -89,11 +86,6 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB, gridMode }:
       return;
     }
 
-    if (gridMode === "voronoi") {
-      voronoiRef.current = renderVoronoiSteps(ctx, colors, steps, tint, tintPure, size, targetAB);
-      return;
-    }
-
     renderPolygonSteps(ctx, colors, steps, tint, tintPure, size, targetAB);
   }, [colors, steps, tint, tintPure, size, targetAB, gridMode]);
 
@@ -108,9 +100,7 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB, gridMode }:
           ? colorAtPointFan(fanMeshRef.current, x, y)
           : colors.length >= 3 && gridMode === "dots"
             ? colorAtPointDots(dotsRef.current, x, y)
-            : colors.length >= 3 && gridMode === "voronoi"
-              ? colorAtPointVoronoi(voronoiRef.current, x, y)
-              : colorAtPoint(colors, steps, tint, tintPure, size, x, y);
+            : colorAtPoint(colors, steps, tint, tintPure, size, x, y);
     setHover(rgb ? { x, y, hex: rgbToHex(rgb), oklch: rgbToOklch(rgb) } : null);
   };
 
@@ -315,17 +305,6 @@ function colorAtPointDots(dots: { x: number; y: number; radius: number; rgb: Rgb
     }
   }
   return nearest?.rgb ?? null;
-}
-
-/** Looks up the color of whichever Voronoi cell contains (x, y), reusing
- * the cells renderVoronoiSteps just drew. Since the cells exactly partition
- * the polygon (see fanVoronoiCells), unlike Dots there's no gap to miss. */
-function colorAtPointVoronoi(cells: { points: Point[]; rgb: RgbTuple }[], x: number, y: number): RgbTuple | null {
-  const p: Point = { x, y };
-  for (const cell of cells) {
-    if (pointInPolygon(p, cell.points)) return cell.rgb;
-  }
-  return null;
 }
 
 function colorDistanceSq(a: { a: number; b: number }, b: { a: number; b: number }): number {
@@ -568,21 +547,37 @@ function hexMarkerVertices(cx: number, cy: number, r: number): Point[] {
   return vertices;
 }
 
-/** Fan lattice rendered as discrete hexagon markers that tile edge-to-edge
- * (see fanLatticePoints) - the way a real hex-grid honeycomb tessellates,
- * rather than a filled triangle mosaic. Adjacent lattice points along the
- * two centroid-to-vertex directions are always exactly `circumradius/steps`
- * apart (equal by construction for a regular polygon), and centers that far
- * apart tile without gaps or overlap when each hexagon's own circumradius
- * is that spacing divided by sqrt(3) - the same fixed relationship the
- * Observable notebook's own marker-size formula (r = w/(n+1)/2, for a fixed
- * plot width w) uses: the canvas stays the fixed swatch size every other
- * grid mode uses, and it's each hexagon that shrinks as `steps` rises,
- * fitting progressively more (never overlapping) tiles into it. This tiles
- * exactly for n=3 and n=6 (the polygon's own vertex spacing, 120° and 60°,
- * is itself a multiple of the hexagon's 60° symmetry); n=4 and n=5 can't
- * tile perfectly either way (their vertex spacing isn't a multiple of 60°)
- * but hexMarkerVertices' alignment still measurably reduces the gaps. */
+// The fan lattice's two step directions (centroid-to-vertex-i and
+// centroid-to-vertex-(i+1)) are exactly `circumradius/steps` apart and
+// separated by the polygon's own vertex spacing, 360/n degrees. With
+// regularPolygonVertices' "vertex-up" convention (first vertex at -90°),
+// that spacing is vertical/horizontal precisely when n=4 (90° apart) - so a
+// plain axis-aligned square of side `circumradius/steps` tiles those two
+// directions edge-to-edge with no rotation needed, the same way a square
+// lattice tiles with unit squares. n=5's own spacing (72°) isn't a multiple
+// of a square's 90° symmetry (nor a hexagon's 60° - no regular shape tiles a
+// 5-fold layout, the reason regular pentagons don't tile the plane at all),
+// so reusing this same axis-aligned square is a best-effort approximation
+// there: small gaps/overlaps instead of the exact fit n=4 gets.
+function squareMarkerVertices(cx: number, cy: number, halfSide: number): Point[] {
+  return [
+    { x: cx - halfSide, y: cy - halfSide },
+    { x: cx + halfSide, y: cy - halfSide },
+    { x: cx + halfSide, y: cy + halfSide },
+    { x: cx - halfSide, y: cy + halfSide },
+  ];
+}
+
+/** Fan lattice rendered as discrete markers that tile edge-to-edge (see
+ * fanLatticePoints) - the way a real hex-grid honeycomb, or a checkerboard,
+ * tessellates, rather than a filled triangle mosaic. Hexagons for a 3- or
+ * 6-color palette (see hexMarkerVertices - exact for these two since the
+ * polygon's own vertex spacing, 120° and 60°, is a multiple of a hexagon's
+ * 60° symmetry), squares for 4 or 5 (see squareMarkerVertices - exact for 4,
+ * best-effort for 5). Each marker shrinks as `steps` rises to keep fitting
+ * the fixed-size canvas without gaps or overlap, the same fixed relationship
+ * the Observable notebook's own marker-size formula (r = w/(n+1)/2, for a
+ * fixed plot width w) uses. */
 function renderDotsSteps(
   ctx: CanvasRenderingContext2D,
   colors: string[],
@@ -596,9 +591,11 @@ function renderDotsSteps(
   const latents = colors.map(hexToLatent);
   const lattice = fanLatticePoints(vertices, steps);
   const circumradius = Math.hypot(vertices[0].x - circleCenter.x, vertices[0].y - circleCenter.y);
-  // A hair under the exact touching radius so antialiasing never shows a
-  // 1px overlap seam between neighboring hexagons.
-  const radius = Math.max(1.5, (circumradius / steps / Math.sqrt(3)) * 0.98);
+  const spacing = circumradius / steps;
+  const useHexagons = colors.length === 3 || colors.length === 6;
+  // A hair under the exact touching size so antialiasing never shows a 1px
+  // overlap seam between neighboring markers.
+  const radius = useHexagons ? Math.max(1.5, (spacing / Math.sqrt(3)) * 0.98) : Math.max(1.5, (spacing / 2) * 0.98);
 
   const dots: { x: number; y: number; radius: number; rgb: RgbTuple }[] = [];
   let nearestCx = circleCenter.x;
@@ -610,7 +607,7 @@ function renderDotsSteps(
     dots.push({ x: point.x, y: point.y, radius, rgb });
 
     const [r, g, b] = rgb;
-    const marker = hexMarkerVertices(point.x, point.y, radius);
+    const marker = useHexagons ? hexMarkerVertices(point.x, point.y, radius) : squareMarkerVertices(point.x, point.y, radius);
     ctx.beginPath();
     marker.forEach((v, i) => (i === 0 ? ctx.moveTo(v.x, v.y) : ctx.lineTo(v.x, v.y)));
     ctx.closePath();
@@ -629,61 +626,4 @@ function renderDotsSteps(
 
   drawPlus(ctx, nearestCx, nearestCy, Math.max(radius * 1.4, 4));
   return dots;
-}
-
-/** Exact Voronoi tiling of the fan lattice (see fanVoronoiCells) - each cell
- * is computed from its own real neighbors rather than assumed to be a fixed
- * regular shape, so it tiles gap-free for any n, including n=5 where no
- * regular marker (hexagon, square, ...) can. */
-function renderVoronoiSteps(
-  ctx: CanvasRenderingContext2D,
-  colors: string[],
-  steps: number,
-  tint: number,
-  tintPure: number,
-  size: number,
-  targetAB: { a: number; b: number } | null,
-): { points: Point[]; rgb: RgbTuple }[] {
-  const { vertices, circleCenter } = polygonGeometry(colors.length, size);
-  const latents = colors.map(hexToLatent);
-  const voronoiCells = fanVoronoiCells(vertices, steps);
-  const drawBorder = size / steps >= MIN_TILE_SIZE_FOR_BORDER;
-
-  const cells: { points: Point[]; rgb: RgbTuple }[] = [];
-  let nearestCx = circleCenter.x;
-  let nearestCy = circleCenter.y;
-  let nearestDist = Infinity;
-
-  for (const { points, weights } of voronoiCells) {
-    const rgb = applyPerceptualTint(latents, weights, tint, tintPure);
-    cells.push({ points, rgb });
-
-    const [r, g, b] = rgb;
-    ctx.beginPath();
-    points.forEach((v, i) => (i === 0 ? ctx.moveTo(v.x, v.y) : ctx.lineTo(v.x, v.y)));
-    ctx.closePath();
-    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-    ctx.fill();
-    if (drawBorder) {
-      ctx.strokeStyle = GRID_LINE_STYLE;
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-
-    const cx = points.reduce((sum, v) => sum + v.x, 0) / points.length;
-    const cy = points.reduce((sum, v) => sum + v.y, 0) / points.length;
-    if (convergedExtreme(rgb)) {
-      drawConvergedDot(ctx, cx, cy, Math.max((size / steps) * 0.1, 2));
-    }
-
-    const dist = targetAB ? colorDistanceSq(rgbToOklabAB(rgb), targetAB) : Math.hypot(cx - circleCenter.x, cy - circleCenter.y);
-    if (dist < nearestDist) {
-      nearestDist = dist;
-      nearestCx = cx;
-      nearestCy = cy;
-    }
-  }
-
-  drawPlus(ctx, nearestCx, nearestCy, Math.max((size / steps) * 0.22, 4));
-  return cells;
 }
