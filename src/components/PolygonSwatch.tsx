@@ -68,6 +68,8 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB, gridMode }:
     canvas.width = size;
     canvas.height = size;
     ctx.clearRect(0, 0, size, size);
+    ctx.fillStyle = CANVAS_BACKGROUND;
+    ctx.fillRect(0, 0, size, size);
 
     if (colors.length < 2) return;
 
@@ -161,6 +163,12 @@ export function PolygonSwatch({ colors, steps, tint, size, targetAB, gridMode }:
 }
 
 const GRID_LINE_STYLE = "rgba(0,0,0,0.12)";
+// A pure neutral gray behind the swatch, showing through wherever the
+// polygon or its markers don't fully cover the canvas (the square canvas's
+// own corners around a triangle/pentagon/hexagon shape, and the gaps
+// between non-touching Dots-mode markers) instead of the panel's own
+// (theme-dependent, and white in light mode) background color.
+const CANVAS_BACKGROUND = "#cccccc";
 // Below this tile size, per-tile borders muddy the colors more than they
 // help define the grid, so they're skipped.
 const MIN_TILE_SIZE_FOR_BORDER = 3;
@@ -534,31 +542,25 @@ function renderFanSteps(
 // vertices at (its own start angle, -90°). A honeycomb only tiles when a
 // hexagon's edge (not a corner) meets the neighbor head-on, so lining a
 // marker's vertex up with that same -90° direction (as a plain
-// regularPolygonVertices(6, ...) call does) leaves it rotated exactly 30°
-// off in every direction - each hexagon touches its neighbor at one corner
-// while gapping at the opposite one, however precisely the radius is sized.
+// Pointy-top, matching regularPolygonVertices' own "vertex-up" convention -
+// a deliberate style choice over the edge-to-edge tiling this mode used to
+// chase: the fan lattice's neighbor directions run centroid-to-vertex (see
+// polygonGeometry), the same directions regularPolygonVertices places a
+// polygon's own vertices at, so a vertex-up hexagon marker now points
+// straight at its nearest neighbor rather than presenting an edge to it.
+// Sized (see renderDotsSteps) so that vertex never reaches past the halfway
+// point to that neighbor, leaving a visible gap (now filled with
+// CANVAS_BACKGROUND) instead of the seamless honeycomb this mode had before.
 function hexMarkerVertices(cx: number, cy: number, r: number): Point[] {
-  const vertices: Point[] = [];
-  const start = -Math.PI / 2 - Math.PI / 6;
-  for (let i = 0; i < 6; i++) {
-    const angle = start + (i * Math.PI) / 3;
-    vertices.push({ x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) });
-  }
-  return vertices;
+  return regularPolygonVertices(6, cx, cy, r);
 }
 
-// The fan lattice's two step directions (centroid-to-vertex-i and
-// centroid-to-vertex-(i+1)) are exactly `circumradius/steps` apart and
-// separated by the polygon's own vertex spacing, 360/n degrees. With
-// regularPolygonVertices' "vertex-up" convention (first vertex at -90°),
-// that spacing is vertical/horizontal precisely when n=4 (90° apart) - so a
-// plain axis-aligned square of side `circumradius/steps` tiles those two
-// directions edge-to-edge with no rotation needed, the same way a square
-// lattice tiles with unit squares. n=5's own spacing (72°) isn't a multiple
-// of a square's 90° symmetry (nor a hexagon's 60° - no regular shape tiles a
-// 5-fold layout, the reason regular pentagons don't tile the plane at all),
-// so reusing this same axis-aligned square is a best-effort approximation
-// there: small gaps/overlaps instead of the exact fit n=4 gets.
+// A plain axis-aligned square. The fan lattice's two step directions
+// (centroid-to-vertex-i and centroid-to-vertex-(i+1)) are exactly
+// `circumradius/steps` apart and separated by the polygon's own vertex
+// spacing, 360/n degrees - vertical/horizontal precisely when n=4 (90°
+// apart), so this tiles those two directions edge-to-edge with no rotation
+// needed, the same way a square lattice tiles with unit squares.
 function squareMarkerVertices(cx: number, cy: number, halfSide: number): Point[] {
   return [
     { x: cx - halfSide, y: cy - halfSide },
@@ -568,16 +570,15 @@ function squareMarkerVertices(cx: number, cy: number, halfSide: number): Point[]
   ];
 }
 
-/** Fan lattice rendered as discrete markers that tile edge-to-edge (see
- * fanLatticePoints) - the way a real hex-grid honeycomb, or a checkerboard,
- * tessellates, rather than a filled triangle mosaic. Hexagons for a 3- or
- * 6-color palette (see hexMarkerVertices - exact for these two since the
- * polygon's own vertex spacing, 120° and 60°, is a multiple of a hexagon's
- * 60° symmetry), squares for 4 or 5 (see squareMarkerVertices - exact for 4,
- * best-effort for 5). Each marker shrinks as `steps` rises to keep fitting
- * the fixed-size canvas without gaps or overlap, the same fixed relationship
- * the Observable notebook's own marker-size formula (r = w/(n+1)/2, for a
- * fixed plot width w) uses. */
+/** Fan lattice rendered as discrete markers (see fanLatticePoints), each
+ * shrinking as `steps` rises to keep fitting the fixed-size canvas: pointy-
+ * top hexagons for a 3- or 6-color palette (see hexMarkerVertices), squares
+ * for 4 (see squareMarkerVertices - an exact edge-to-edge fit, since the
+ * diamond's own lattice directions are vertical/horizontal), and plain
+ * circles for 5 - a pentagon's own vertex spacing (72°) is a multiple of no
+ * regular shape's symmetry (the reason regular pentagons don't tile the
+ * plane at all), so rather than force a near-miss square or hexagon, 5 gets
+ * markers deliberately sized well short of touching. */
 function renderDotsSteps(
   ctx: CanvasRenderingContext2D,
   colors: string[],
@@ -592,10 +593,16 @@ function renderDotsSteps(
   const lattice = fanLatticePoints(vertices, steps);
   const circumradius = Math.hypot(vertices[0].x - circleCenter.x, vertices[0].y - circleCenter.y);
   const spacing = circumradius / steps;
-  const useHexagons = colors.length === 3 || colors.length === 6;
-  // A hair under the exact touching size so antialiasing never shows a 1px
-  // overlap seam between neighboring markers.
-  const radius = useHexagons ? Math.max(1.5, (spacing / Math.sqrt(3)) * 0.98) : Math.max(1.5, (spacing / 2) * 0.98);
+  const n = colors.length;
+  const useHexagons = n === 3 || n === 6;
+  const useCircles = n === 5;
+  // A hair under the exact touching size for hexagons/squares (so
+  // antialiasing never shows a 1px overlap seam) - hexagons are now
+  // vertex-first toward their nearest neighbor, so half the spacing (not
+  // spacing/sqrt(3), which was sized for an edge-first hexagon) is the
+  // touching threshold. Circles are sized well under it instead, for a
+  // deliberately visible gap.
+  const radius = useCircles ? Math.max(1.5, spacing * 0.32) : Math.max(1.5, (spacing / 2) * 0.98);
 
   const dots: { x: number; y: number; radius: number; rgb: RgbTuple }[] = [];
   let nearestCx = circleCenter.x;
@@ -607,10 +614,14 @@ function renderDotsSteps(
     dots.push({ x: point.x, y: point.y, radius, rgb });
 
     const [r, g, b] = rgb;
-    const marker = useHexagons ? hexMarkerVertices(point.x, point.y, radius) : squareMarkerVertices(point.x, point.y, radius);
     ctx.beginPath();
-    marker.forEach((v, i) => (i === 0 ? ctx.moveTo(v.x, v.y) : ctx.lineTo(v.x, v.y)));
-    ctx.closePath();
+    if (useCircles) {
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    } else {
+      const marker = useHexagons ? hexMarkerVertices(point.x, point.y, radius) : squareMarkerVertices(point.x, point.y, radius);
+      marker.forEach((v, i) => (i === 0 ? ctx.moveTo(v.x, v.y) : ctx.lineTo(v.x, v.y)));
+      ctx.closePath();
+    }
     ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
     ctx.fill();
 
