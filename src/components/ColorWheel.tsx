@@ -17,6 +17,8 @@ interface ColorWheelProps {
   /** When false, the wheel is view-only: clicking or dragging on it no
    * longer changes the active color slot. */
   selectionEnabled: boolean;
+  /** Whether to show the "Geometric center" info box below the wheel. */
+  showCentroid: boolean;
 }
 
 const WHEEL_RESOLUTION = 220;
@@ -88,6 +90,7 @@ export function ColorWheel({
   activeIndex,
   onPick,
   selectionEnabled,
+  showCentroid,
 }: ColorWheelProps) {
   const bgCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -188,7 +191,7 @@ export function ColorWheel({
         </svg>
       </div>
 
-      {centroidColor && <CentroidInfo hex={centroidColor} />}
+      {showCentroid && centroidColor && <CentroidInfo hex={centroidColor} />}
     </>
   );
 }

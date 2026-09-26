@@ -13,6 +13,8 @@ interface ColorPlaneProps {
   /** When false, the plane is view-only: clicking or dragging on it no
    * longer changes the active color slot. */
   selectionEnabled: boolean;
+  /** Whether to show the "Geometric center" info box below the plane. */
+  showCentroid: boolean;
 }
 
 const PLANE_RESOLUTION = 220;
@@ -76,6 +78,7 @@ export function ColorPlane({
   activeIndex,
   onPick,
   selectionEnabled,
+  showCentroid,
 }: ColorPlaneProps) {
   const bgCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -241,7 +244,7 @@ export function ColorPlane({
         <span className="plane-axis-label plane-axis-label-a">a (green ↔ magenta)</span>
       </div>
 
-      {centroidHex && <PlaneCentroidInfo hex={centroidHex} centroid={centroid} />}
+      {showCentroid && centroidHex && <PlaneCentroidInfo hex={centroidHex} centroid={centroid} />}
     </>
   );
 }

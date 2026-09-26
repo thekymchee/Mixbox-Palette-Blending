@@ -26,6 +26,8 @@ function App() {
   const [wheelView, setWheelView] = useState<WheelView>("plane");
   const [circleEnabled, setCircleEnabled] = useState(false);
   const [selectionEnabled, setSelectionEnabled] = useState(true);
+  const [showCentroid, setShowCentroid] = useState(true);
+  const [showLightnessSlider, setShowLightnessSlider] = useState(true);
   const [pigmentTab, setPigmentTab] = useState<PigmentTab>("mine");
 
   const visiblePigments = pigmentTab === "mine" ? pigments : WINSOR_NEWTON_PIGMENTS;
@@ -130,6 +132,29 @@ function App() {
               </div>
             )}
           </div>
+          {wheelView === "circle" ? (
+            <ColorWheel
+              size={320}
+              lightness={lightness}
+              pigments={visiblePigments}
+              selectedColors={wheelSelectedColors}
+              activeIndex={activeIndex}
+              onPick={handleWheelPick}
+              selectionEnabled={selectionEnabled}
+              showCentroid={showCentroid}
+            />
+          ) : (
+            <ColorPlane
+              size={320}
+              lightness={lightness}
+              pigments={visiblePigments}
+              selectedColors={wheelSelectedColors}
+              activeIndex={activeIndex}
+              onPick={handleWheelPick}
+              selectionEnabled={selectionEnabled}
+              showCentroid={showCentroid}
+            />
+          )}
           <div className="wheel-options">
             <label className="switch-control">
               <input
@@ -153,42 +178,41 @@ function App() {
               </span>
               <span className="switch-label">Color selection</span>
             </label>
-          </div>
-          {wheelView === "circle" ? (
-            <ColorWheel
-              size={320}
-              lightness={lightness}
-              pigments={visiblePigments}
-              selectedColors={wheelSelectedColors}
-              activeIndex={activeIndex}
-              onPick={handleWheelPick}
-              selectionEnabled={selectionEnabled}
-            />
-          ) : (
-            <ColorPlane
-              size={320}
-              lightness={lightness}
-              pigments={visiblePigments}
-              selectedColors={wheelSelectedColors}
-              activeIndex={activeIndex}
-              onPick={handleWheelPick}
-              selectionEnabled={selectionEnabled}
-            />
-          )}
-          <div className="slider-row lightness-row">
-            <label htmlFor="lightness-slider">
-              {wheelView === "circle" ? "Wheel" : "Plane"} lightness: {lightness.toFixed(2)}
+            <label className="switch-control">
+              <input type="checkbox" checked={showCentroid} onChange={(e) => setShowCentroid(e.target.checked)} />
+              <span className="switch-track">
+                <span className="switch-thumb" />
+              </span>
+              <span className="switch-label">Geometric center</span>
             </label>
-            <input
-              id="lightness-slider"
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={lightness}
-              onChange={(e) => setLightness(Number(e.target.value))}
-            />
+            <label className="switch-control">
+              <input
+                type="checkbox"
+                checked={showLightnessSlider}
+                onChange={(e) => setShowLightnessSlider(e.target.checked)}
+              />
+              <span className="switch-track">
+                <span className="switch-thumb" />
+              </span>
+              <span className="switch-label">Lightness slider</span>
+            </label>
           </div>
+          {showLightnessSlider && (
+            <div className="slider-row lightness-row">
+              <label htmlFor="lightness-slider">
+                {wheelView === "circle" ? "Wheel" : "Plane"} lightness: {lightness.toFixed(2)}
+              </label>
+              <input
+                id="lightness-slider"
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={lightness}
+                onChange={(e) => setLightness(Number(e.target.value))}
+              />
+            </div>
+          )}
           {wheelView === "circle" ? (
             <p className="hint-text">
               {selectionEnabled ? (
