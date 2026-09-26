@@ -131,22 +131,22 @@ function App() {
             )}
           </div>
           <div className="wheel-options">
-            <label className="option-toggle">
-              <input
-                type="checkbox"
-                checked={circleEnabled}
-                onChange={(e) => handleCircleEnabledChange(e.target.checked)}
-              />
+            <button
+              type="button"
+              className={`toggle-button${circleEnabled ? " active" : ""}`}
+              aria-pressed={circleEnabled}
+              onClick={() => handleCircleEnabledChange(!circleEnabled)}
+            >
               OKHSL color circle
-            </label>
-            <label className="option-toggle">
-              <input
-                type="checkbox"
-                checked={selectionEnabled}
-                onChange={(e) => setSelectionEnabled(e.target.checked)}
-              />
+            </button>
+            <button
+              type="button"
+              className={`toggle-button${selectionEnabled ? " active" : ""}`}
+              aria-pressed={selectionEnabled}
+              onClick={() => setSelectionEnabled(!selectionEnabled)}
+            >
               Color selection
-            </label>
+            </button>
           </div>
           {wheelView === "circle" ? (
             <ColorWheel
@@ -255,10 +255,11 @@ function App() {
                   )}
                   <button
                     type="button"
-                    className="mode-options-toggle"
+                    className={`toggle-button${showModeOptions ? " active" : ""}`}
+                    aria-pressed={showModeOptions}
                     onClick={() => handleShowModeOptionsChange(!showModeOptions)}
                   >
-                    {showModeOptions ? "Fewer modes" : "More modes"}
+                    More modes
                   </button>
                 </div>
               )}
