@@ -20,9 +20,13 @@ function App() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [lightness, setLightness] = useState(0.75);
   const [steps, setSteps] = useState(5);
-  const [gridMode, setGridMode] = useState<GridMode>("squares");
+  const [gridMode, setGridMode] = useState<GridMode>("fan");
+  const [showModeOptions, setShowModeOptions] = useState(false);
   const [rawTint, setRawTint] = useState(() => tintRangeForColors(colors.slice(0, count)).pure);
-  const [wheelView, setWheelView] = useState<WheelView>("circle");
+  const [wheelView, setWheelView] = useState<WheelView>("plane");
+  const [circleEnabled, setCircleEnabled] = useState(false);
+  const [selectionEnabled, setSelectionEnabled] = useState(true);
+  const [showCentroid, setShowCentroid] = useState(true);
   const [pigmentTab, setPigmentTab] = useState<PigmentTab>("mine");
 
   const visiblePigments = pigmentTab === "mine" ? pigments : WINSOR_NEWTON_PIGMENTS;
@@ -34,6 +38,22 @@ function App() {
   const handleCountChange = useCallback((next: number) => {
     setCount(next);
     setActiveIndex((prev) => Math.min(prev, next - 1));
+  }, []);
+
+  // Collapses back to "fan" (the main mode) whenever the other options are
+  // hidden again, so re-expanding always starts from a known state instead
+  // of resuming whatever mode happened to be picked before.
+  const handleShowModeOptionsChange = useCallback((next: boolean) => {
+    setShowModeOptions(next);
+    if (!next) setGridMode("fan");
+  }, []);
+
+  // Falls back to Plane (the main view) whenever Circle mode is turned off,
+  // so the view switcher (only shown while Circle is enabled) never needs
+  // to reappear already pointed at a now-hidden option.
+  const handleCircleEnabledChange = useCallback((next: boolean) => {
+    setCircleEnabled(next);
+    if (!next) setWheelView("plane");
   }, []);
 
   const activeColors = useMemo(() => colors.slice(0, count), [colors, count]);
@@ -92,22 +112,24 @@ function App() {
         <section className="panel wheel-panel">
           <div className="panel-header">
             <h2>{wheelView === "circle" ? "Okhsl Color Circle" : "OKLab Color Plane"}</h2>
-            <div className="view-toggle">
-              <button
-                type="button"
-                className={wheelView === "circle" ? "active" : ""}
-                onClick={() => setWheelView("circle")}
-              >
-                Circle
-              </button>
-              <button
-                type="button"
-                className={wheelView === "plane" ? "active" : ""}
-                onClick={() => setWheelView("plane")}
-              >
-                Plane
-              </button>
-            </div>
+            {circleEnabled && (
+              <div className="view-toggle">
+                <button
+                  type="button"
+                  className={wheelView === "circle" ? "active" : ""}
+                  onClick={() => setWheelView("circle")}
+                >
+                  Circle
+                </button>
+                <button
+                  type="button"
+                  className={wheelView === "plane" ? "active" : ""}
+                  onClick={() => setWheelView("plane")}
+                >
+                  Plane
+                </button>
+              </div>
+            )}
           </div>
           {wheelView === "circle" ? (
             <ColorWheel
@@ -117,6 +139,8 @@ function App() {
               selectedColors={wheelSelectedColors}
               activeIndex={activeIndex}
               onPick={handleWheelPick}
+              selectionEnabled={selectionEnabled}
+              showCentroid={showCentroid}
             />
           ) : (
             <ColorPlane
@@ -126,33 +150,81 @@ function App() {
               selectedColors={wheelSelectedColors}
               activeIndex={activeIndex}
               onPick={handleWheelPick}
+              selectionEnabled={selectionEnabled}
+              showCentroid={showCentroid}
             />
           )}
-          <div className="slider-row lightness-row">
-            <label htmlFor="lightness-slider">
-              {wheelView === "circle" ? "Wheel" : "Plane"} lightness: {lightness.toFixed(2)}
+          <div className="wheel-options">
+            <label className="switch-control">
+              <input
+                type="checkbox"
+                checked={circleEnabled}
+                onChange={(e) => handleCircleEnabledChange(e.target.checked)}
+              />
+              <span className="switch-track">
+                <span className="switch-thumb" />
+              </span>
+              <span className="switch-label">OKHSL color circle</span>
             </label>
-            <input
-              id="lightness-slider"
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={lightness}
-              onChange={(e) => setLightness(Number(e.target.value))}
-            />
+            <label className="switch-control">
+              <input
+                type="checkbox"
+                checked={selectionEnabled}
+                onChange={(e) => setSelectionEnabled(e.target.checked)}
+              />
+              <span className="switch-track">
+                <span className="switch-thumb" />
+              </span>
+              <span className="switch-label">Color selection</span>
+            </label>
+            <label className="switch-control">
+              <input type="checkbox" checked={showCentroid} onChange={(e) => setShowCentroid(e.target.checked)} />
+              <span className="switch-track">
+                <span className="switch-thumb" />
+              </span>
+              <span className="switch-label">Geometric center</span>
+            </label>
           </div>
+          {selectionEnabled && (
+            <div className="slider-row lightness-row">
+              <label htmlFor="lightness-slider">
+                {wheelView === "circle" ? "Wheel" : "Plane"} lightness: {lightness.toFixed(2)}
+              </label>
+              <input
+                id="lightness-slider"
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={lightness}
+                onChange={(e) => setLightness(Number(e.target.value))}
+              />
+            </div>
+          )}
           {wheelView === "circle" ? (
             <p className="hint-text">
-              Click or drag on the circle to set color <strong>#{activeIndex + 1}</strong>. Small dots are
-              your pigment library; large rings are the colors being blended; the <strong>+</strong> marks
-              the geometric center of the polygon their points form (its color at the current lightness).
-              Saturation is normalized to the gamut edge, so vivid pigments cluster near the rim.
+              {selectionEnabled ? (
+                <>
+                  Click or drag on the circle to set color <strong>#{activeIndex + 1}</strong>.{" "}
+                </>
+              ) : (
+                <>Color selection is off, so clicking or dragging on the circle does nothing. </>
+              )}
+              Small dots are your pigment library; large rings are the colors being blended; the{" "}
+              <strong>+</strong> marks the geometric center of the polygon their points form (its color at
+              the current lightness). Saturation is normalized to the gamut edge, so vivid pigments
+              cluster near the rim.
             </p>
           ) : (
             <p className="hint-text">
-              Click or drag on the plane to set color <strong>#{activeIndex + 1}</strong>. Unlike the
-              circle, position reflects each color's true OKLab chroma (à la{" "}
+              {selectionEnabled ? (
+                <>
+                  Click or drag on the plane to set color <strong>#{activeIndex + 1}</strong>.{" "}
+                </>
+              ) : (
+                <>Color selection is off, so clicking or dragging on the plane does nothing. </>
+              )}
+              Unlike the circle, position reflects each color's true OKLab chroma (à la{" "}
               <a href="https://artistpigments.org" target="_blank" rel="noreferrer">
                 artistpigments.org
               </a>
@@ -177,20 +249,39 @@ function App() {
             <div className="panel-header">
               <h2>Blended Swatch</h2>
               {count >= 3 && (
-                <div className="view-toggle">
-                  <button
-                    type="button"
-                    className={gridMode === "squares" ? "active" : ""}
-                    onClick={() => setGridMode("squares")}
-                  >
-                    Squares
-                  </button>
-                  <button type="button" className={gridMode === "fan" ? "active" : ""} onClick={() => setGridMode("fan")}>
-                    Fan
-                  </button>
-                  <button type="button" className={gridMode === "dots" ? "active" : ""} onClick={() => setGridMode("dots")}>
-                    Dots
-                  </button>
+                <div className="swatch-mode-controls">
+                  {showModeOptions && (
+                    <div className="view-toggle">
+                      <button
+                        type="button"
+                        className={gridMode === "squares" ? "active" : ""}
+                        onClick={() => setGridMode("squares")}
+                      >
+                        Squares
+                      </button>
+                      <button
+                        type="button"
+                        className={gridMode === "fan" ? "active" : ""}
+                        onClick={() => setGridMode("fan")}
+                      >
+                        Fan
+                      </button>
+                      <button type="button" className={gridMode === "dots" ? "active" : ""} onClick={() => setGridMode("dots")}>
+                        Dots
+                      </button>
+                    </div>
+                  )}
+                  <label className="switch-control">
+                    <input
+                      type="checkbox"
+                      checked={showModeOptions}
+                      onChange={(e) => handleShowModeOptionsChange(e.target.checked)}
+                    />
+                    <span className="switch-track">
+                      <span className="switch-thumb" />
+                    </span>
+                    <span className="switch-label">More modes</span>
+                  </label>
                 </div>
               )}
             </div>
