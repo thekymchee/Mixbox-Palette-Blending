@@ -27,7 +27,6 @@ function App() {
   const [circleEnabled, setCircleEnabled] = useState(false);
   const [selectionEnabled, setSelectionEnabled] = useState(true);
   const [showCentroid, setShowCentroid] = useState(true);
-  const [showLightnessSlider, setShowLightnessSlider] = useState(true);
   const [pigmentTab, setPigmentTab] = useState<PigmentTab>("mine");
 
   const visiblePigments = pigmentTab === "mine" ? pigments : WINSOR_NEWTON_PIGMENTS;
@@ -185,19 +184,8 @@ function App() {
               </span>
               <span className="switch-label">Geometric center</span>
             </label>
-            <label className="switch-control">
-              <input
-                type="checkbox"
-                checked={showLightnessSlider}
-                onChange={(e) => setShowLightnessSlider(e.target.checked)}
-              />
-              <span className="switch-track">
-                <span className="switch-thumb" />
-              </span>
-              <span className="switch-label">Lightness slider</span>
-            </label>
           </div>
-          {showLightnessSlider && (
+          {selectionEnabled && (
             <div className="slider-row lightness-row">
               <label htmlFor="lightness-slider">
                 {wheelView === "circle" ? "Wheel" : "Plane"} lightness: {lightness.toFixed(2)}

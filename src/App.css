@@ -130,6 +130,7 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: 16px;
+  margin-top: 12px;
   margin-bottom: 12px;
 }
 
