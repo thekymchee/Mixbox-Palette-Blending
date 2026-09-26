@@ -208,6 +208,10 @@
   cursor: not-allowed;
 }
 
+.color-plane.disabled .color-plane-canvas {
+  visibility: hidden;
+}
+
 .color-plane-canvas {
   position: absolute;
   inset: 0;
