@@ -43,6 +43,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
 }
 
@@ -111,6 +112,28 @@
 .view-toggle button.active {
   background: var(--accent);
   color: white;
+}
+
+.swatch-mode-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.mode-options-toggle {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.mode-options-toggle:hover {
+  color: var(--text);
 }
 
 .color-plane-wrap {

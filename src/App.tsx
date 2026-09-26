@@ -20,7 +20,8 @@ function App() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [lightness, setLightness] = useState(0.75);
   const [steps, setSteps] = useState(5);
-  const [gridMode, setGridMode] = useState<GridMode>("squares");
+  const [gridMode, setGridMode] = useState<GridMode>("fan");
+  const [showModeOptions, setShowModeOptions] = useState(false);
   const [rawTint, setRawTint] = useState(() => tintRangeForColors(colors.slice(0, count)).pure);
   const [wheelView, setWheelView] = useState<WheelView>("circle");
   const [pigmentTab, setPigmentTab] = useState<PigmentTab>("mine");
@@ -34,6 +35,14 @@ function App() {
   const handleCountChange = useCallback((next: number) => {
     setCount(next);
     setActiveIndex((prev) => Math.min(prev, next - 1));
+  }, []);
+
+  // Collapses back to "fan" (the main mode) whenever the other options are
+  // hidden again, so re-expanding always starts from a known state instead
+  // of resuming whatever mode happened to be picked before.
+  const handleShowModeOptionsChange = useCallback((next: boolean) => {
+    setShowModeOptions(next);
+    if (!next) setGridMode("fan");
   }, []);
 
   const activeColors = useMemo(() => colors.slice(0, count), [colors, count]);
@@ -177,19 +186,34 @@ function App() {
             <div className="panel-header">
               <h2>Blended Swatch</h2>
               {count >= 3 && (
-                <div className="view-toggle">
+                <div className="swatch-mode-controls">
+                  {showModeOptions && (
+                    <div className="view-toggle">
+                      <button
+                        type="button"
+                        className={gridMode === "squares" ? "active" : ""}
+                        onClick={() => setGridMode("squares")}
+                      >
+                        Squares
+                      </button>
+                      <button
+                        type="button"
+                        className={gridMode === "fan" ? "active" : ""}
+                        onClick={() => setGridMode("fan")}
+                      >
+                        Fan
+                      </button>
+                      <button type="button" className={gridMode === "dots" ? "active" : ""} onClick={() => setGridMode("dots")}>
+                        Dots
+                      </button>
+                    </div>
+                  )}
                   <button
                     type="button"
-                    className={gridMode === "squares" ? "active" : ""}
-                    onClick={() => setGridMode("squares")}
+                    className="mode-options-toggle"
+                    onClick={() => handleShowModeOptionsChange(!showModeOptions)}
                   >
-                    Squares
-                  </button>
-                  <button type="button" className={gridMode === "fan" ? "active" : ""} onClick={() => setGridMode("fan")}>
-                    Fan
-                  </button>
-                  <button type="button" className={gridMode === "dots" ? "active" : ""} onClick={() => setGridMode("dots")}>
-                    Dots
+                    {showModeOptions ? "Fewer modes" : "More modes"}
                   </button>
                 </div>
               )}
