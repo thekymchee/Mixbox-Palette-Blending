@@ -131,22 +131,28 @@ function App() {
             )}
           </div>
           <div className="wheel-options">
-            <button
-              type="button"
-              className={`toggle-button${circleEnabled ? " active" : ""}`}
-              aria-pressed={circleEnabled}
-              onClick={() => handleCircleEnabledChange(!circleEnabled)}
-            >
-              OKHSL color circle
-            </button>
-            <button
-              type="button"
-              className={`toggle-button${selectionEnabled ? " active" : ""}`}
-              aria-pressed={selectionEnabled}
-              onClick={() => setSelectionEnabled(!selectionEnabled)}
-            >
-              Color selection
-            </button>
+            <label className="switch-control">
+              <input
+                type="checkbox"
+                checked={circleEnabled}
+                onChange={(e) => handleCircleEnabledChange(e.target.checked)}
+              />
+              <span className="switch-track">
+                <span className="switch-thumb" />
+              </span>
+              <span className="switch-label">OKHSL color circle</span>
+            </label>
+            <label className="switch-control">
+              <input
+                type="checkbox"
+                checked={selectionEnabled}
+                onChange={(e) => setSelectionEnabled(e.target.checked)}
+              />
+              <span className="switch-track">
+                <span className="switch-thumb" />
+              </span>
+              <span className="switch-label">Color selection</span>
+            </label>
           </div>
           {wheelView === "circle" ? (
             <ColorWheel
@@ -253,14 +259,17 @@ function App() {
                       </button>
                     </div>
                   )}
-                  <button
-                    type="button"
-                    className={`toggle-button${showModeOptions ? " active" : ""}`}
-                    aria-pressed={showModeOptions}
-                    onClick={() => handleShowModeOptionsChange(!showModeOptions)}
-                  >
-                    More modes
-                  </button>
+                  <label className="switch-control">
+                    <input
+                      type="checkbox"
+                      checked={showModeOptions}
+                      onChange={(e) => handleShowModeOptionsChange(e.target.checked)}
+                    />
+                    <span className="switch-track">
+                      <span className="switch-thumb" />
+                    </span>
+                    <span className="switch-label">More modes</span>
+                  </label>
                 </div>
               )}
             </div>
