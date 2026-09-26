@@ -14,6 +14,9 @@ interface ColorWheelProps {
   selectedColors: WheelColor[];
   activeIndex: number;
   onPick: (hex: string) => void;
+  /** When false, the wheel is view-only: clicking or dragging on it no
+   * longer changes the active color slot. */
+  selectionEnabled: boolean;
 }
 
 const WHEEL_RESOLUTION = 220;
@@ -77,7 +80,15 @@ function polygonCentroid(selectedColors: WheelColor[]): { x: number; y: number }
   return { x: sumX / count, y: sumY / count };
 }
 
-export function ColorWheel({ size, lightness, pigments, selectedColors, activeIndex, onPick }: ColorWheelProps) {
+export function ColorWheel({
+  size,
+  lightness,
+  pigments,
+  selectedColors,
+  activeIndex,
+  onPick,
+  selectionEnabled,
+}: ColorWheelProps) {
   const bgCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -100,12 +111,13 @@ export function ColorWheel({ size, lightness, pigments, selectedColors, activeIn
   );
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!selectionEnabled) return;
     (e.target as Element).setPointerCapture(e.pointerId);
     pickAt(e.clientX, e.clientY);
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.buttons !== 1) return;
+    if (!selectionEnabled || e.buttons !== 1) return;
     pickAt(e.clientX, e.clientY);
   };
 
@@ -122,7 +134,7 @@ export function ColorWheel({ size, lightness, pigments, selectedColors, activeIn
     <>
       <div
         ref={containerRef}
-        className="color-wheel"
+        className={`color-wheel${selectionEnabled ? "" : " disabled"}`}
         style={{ width: size, height: size }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

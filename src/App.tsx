@@ -23,7 +23,9 @@ function App() {
   const [gridMode, setGridMode] = useState<GridMode>("fan");
   const [showModeOptions, setShowModeOptions] = useState(false);
   const [rawTint, setRawTint] = useState(() => tintRangeForColors(colors.slice(0, count)).pure);
-  const [wheelView, setWheelView] = useState<WheelView>("circle");
+  const [wheelView, setWheelView] = useState<WheelView>("plane");
+  const [circleEnabled, setCircleEnabled] = useState(false);
+  const [selectionEnabled, setSelectionEnabled] = useState(true);
   const [pigmentTab, setPigmentTab] = useState<PigmentTab>("mine");
 
   const visiblePigments = pigmentTab === "mine" ? pigments : WINSOR_NEWTON_PIGMENTS;
@@ -43,6 +45,14 @@ function App() {
   const handleShowModeOptionsChange = useCallback((next: boolean) => {
     setShowModeOptions(next);
     if (!next) setGridMode("fan");
+  }, []);
+
+  // Falls back to Plane (the main view) whenever Circle mode is turned off,
+  // so the view switcher (only shown while Circle is enabled) never needs
+  // to reappear already pointed at a now-hidden option.
+  const handleCircleEnabledChange = useCallback((next: boolean) => {
+    setCircleEnabled(next);
+    if (!next) setWheelView("plane");
   }, []);
 
   const activeColors = useMemo(() => colors.slice(0, count), [colors, count]);
@@ -101,22 +111,42 @@ function App() {
         <section className="panel wheel-panel">
           <div className="panel-header">
             <h2>{wheelView === "circle" ? "Okhsl Color Circle" : "OKLab Color Plane"}</h2>
-            <div className="view-toggle">
-              <button
-                type="button"
-                className={wheelView === "circle" ? "active" : ""}
-                onClick={() => setWheelView("circle")}
-              >
-                Circle
-              </button>
-              <button
-                type="button"
-                className={wheelView === "plane" ? "active" : ""}
-                onClick={() => setWheelView("plane")}
-              >
-                Plane
-              </button>
-            </div>
+            {circleEnabled && (
+              <div className="view-toggle">
+                <button
+                  type="button"
+                  className={wheelView === "circle" ? "active" : ""}
+                  onClick={() => setWheelView("circle")}
+                >
+                  Circle
+                </button>
+                <button
+                  type="button"
+                  className={wheelView === "plane" ? "active" : ""}
+                  onClick={() => setWheelView("plane")}
+                >
+                  Plane
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="wheel-options">
+            <label className="option-toggle">
+              <input
+                type="checkbox"
+                checked={circleEnabled}
+                onChange={(e) => handleCircleEnabledChange(e.target.checked)}
+              />
+              OKHSL color circle
+            </label>
+            <label className="option-toggle">
+              <input
+                type="checkbox"
+                checked={selectionEnabled}
+                onChange={(e) => setSelectionEnabled(e.target.checked)}
+              />
+              Color selection
+            </label>
           </div>
           {wheelView === "circle" ? (
             <ColorWheel
@@ -126,6 +156,7 @@ function App() {
               selectedColors={wheelSelectedColors}
               activeIndex={activeIndex}
               onPick={handleWheelPick}
+              selectionEnabled={selectionEnabled}
             />
           ) : (
             <ColorPlane
@@ -135,6 +166,7 @@ function App() {
               selectedColors={wheelSelectedColors}
               activeIndex={activeIndex}
               onPick={handleWheelPick}
+              selectionEnabled={selectionEnabled}
             />
           )}
           <div className="slider-row lightness-row">
@@ -153,15 +185,28 @@ function App() {
           </div>
           {wheelView === "circle" ? (
             <p className="hint-text">
-              Click or drag on the circle to set color <strong>#{activeIndex + 1}</strong>. Small dots are
-              your pigment library; large rings are the colors being blended; the <strong>+</strong> marks
-              the geometric center of the polygon their points form (its color at the current lightness).
-              Saturation is normalized to the gamut edge, so vivid pigments cluster near the rim.
+              {selectionEnabled ? (
+                <>
+                  Click or drag on the circle to set color <strong>#{activeIndex + 1}</strong>.{" "}
+                </>
+              ) : (
+                <>Color selection is off, so clicking or dragging on the circle does nothing. </>
+              )}
+              Small dots are your pigment library; large rings are the colors being blended; the{" "}
+              <strong>+</strong> marks the geometric center of the polygon their points form (its color at
+              the current lightness). Saturation is normalized to the gamut edge, so vivid pigments
+              cluster near the rim.
             </p>
           ) : (
             <p className="hint-text">
-              Click or drag on the plane to set color <strong>#{activeIndex + 1}</strong>. Unlike the
-              circle, position reflects each color's true OKLab chroma (à la{" "}
+              {selectionEnabled ? (
+                <>
+                  Click or drag on the plane to set color <strong>#{activeIndex + 1}</strong>.{" "}
+                </>
+              ) : (
+                <>Color selection is off, so clicking or dragging on the plane does nothing. </>
+              )}
+              Unlike the circle, position reflects each color's true OKLab chroma (à la{" "}
               <a href="https://artistpigments.org" target="_blank" rel="noreferrer">
                 artistpigments.org
               </a>

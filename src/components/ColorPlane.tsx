@@ -10,6 +10,9 @@ interface ColorPlaneProps {
   selectedColors: WheelColor[];
   activeIndex: number;
   onPick: (hex: string) => void;
+  /** When false, the plane is view-only: clicking or dragging on it no
+   * longer changes the active color slot. */
+  selectionEnabled: boolean;
 }
 
 const PLANE_RESOLUTION = 220;
@@ -65,7 +68,15 @@ function paintPlaneBackground(canvas: HTMLCanvasElement, lightness: number, half
   ctx.putImageData(image, 0, 0);
 }
 
-export function ColorPlane({ size, lightness, pigments, selectedColors, activeIndex, onPick }: ColorPlaneProps) {
+export function ColorPlane({
+  size,
+  lightness,
+  pigments,
+  selectedColors,
+  activeIndex,
+  onPick,
+  selectionEnabled,
+}: ColorPlaneProps) {
   const bgCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -90,12 +101,13 @@ export function ColorPlane({ size, lightness, pigments, selectedColors, activeIn
   );
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!selectionEnabled) return;
     (e.target as Element).setPointerCapture(e.pointerId);
     pickAt(e.clientX, e.clientY);
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.buttons !== 1) return;
+    if (!selectionEnabled || e.buttons !== 1) return;
     pickAt(e.clientX, e.clientY);
   };
 
@@ -131,7 +143,7 @@ export function ColorPlane({ size, lightness, pigments, selectedColors, activeIn
         <span className="plane-axis-label plane-axis-label-b">b (blue ↔ yellow)</span>
         <div
           ref={containerRef}
-          className="color-plane"
+          className={`color-plane${selectionEnabled ? "" : " disabled"}`}
           style={{ width: size, height: size }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}

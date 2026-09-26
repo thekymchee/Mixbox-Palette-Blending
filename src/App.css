@@ -66,6 +66,10 @@
   cursor: crosshair;
 }
 
+.color-wheel.disabled {
+  cursor: not-allowed;
+}
+
 .color-wheel-canvas {
   position: absolute;
   inset: 0;
@@ -136,6 +140,28 @@
   color: var(--text);
 }
 
+.wheel-options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.option-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.option-toggle input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .color-plane-wrap {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -153,6 +179,10 @@
   cursor: crosshair;
   border: 1px solid var(--border);
   border-radius: 4px;
+}
+
+.color-plane.disabled {
+  cursor: not-allowed;
 }
 
 .color-plane-canvas {
