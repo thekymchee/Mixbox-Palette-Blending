@@ -1,4 +1,5 @@
 # Mixbox Palette Blending
+*https://thekymchee.github.io/Mixbox-Palette-Blending/*
 
 A web app for exploring pigment-based color blending. Pick 2–6 colors and see
 them mixed as real paint — using [Mixbox](https://github.com/scrtwpns/mixbox)'s
